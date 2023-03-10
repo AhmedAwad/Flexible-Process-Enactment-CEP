@@ -1,0 +1,46 @@
+// create the schemas for events, tables, and named windows
+// Map of the event payload
+Create map schema Property_Values as (property string, value object)
+// Schema for the event generated for a process instance progress
+create schema Process_Event(PM_ID int, CASE_ID int , Node_ID string, Cycle_Num int, State string, Pay_Load Property_Values, Time_stamp timestamp)
+
+//Create the table that holds case variables
+create table Case_Variables (PM_ID int, CASE_ID int, Variables Property_Values)
+
+//Variables?
+create variable currentPM_ID = 1
+
+// functions
+create getPMFromContext() [ currentPM_ID]
+//History (named window)
+create window Execution_History.win:keepall() as Process_Event insert
+
+
+//We are giving example of how the orchestration is encoded as set of EPL rules
+// we assume that the start event is manually triggered and added by an agent to the stream
+insert into Process_Event
+select getPMFromContext(), Coalesce((select max(Case_ID)+1 from Execution_History where PM_ID = getPMFromContext()),1), "SE1",0,"completed", null, current_timestamp
+
+// Create a record in the Case variables table for the new case
+insert into Case_Variables (PM_ID, CASE_ID, Variables ) 
+select (st.PM_ID, st.CASE_ID, {}) from Process_Event(Node_ID="SE1", state="completed") as st
+
+// Template to handle activity nodes that have a single predecessor
+insert into Process_Event(PM_ID, CASE_ID, Node_ID, Cycle_Num, state, Pay_Load, Time_stamp)
+select pred.PM_ID, pred.CASE_ID, "Activity_ID", Pred.Cycle_Num, case pred.state when "completed" then "started" else "skipped" end, CV.Variables, current_timestamp 
+From Process_Event as pred join Case_Variables as CV on pred.PM_ID = CV.PM_ID and pred.CASE_ID = CV.Case_ID
+where pred.state in ("completed", "skipped") and pred.Node_ID = "Pred_Node_ID"
+
+
+// Template to handle XOR-join, when one of the inputs is froming a loop
+//The loopless entry point
+insert into Process_Event(PM_ID, CASE_ID, Node_ID, Cycle_Num, state, Pay_Load, Time_stamp)
+select pred.PM_ID, pred.Case_ID, "XOR-JOIN-ID", pred.Cycle_Num, case pred.state when "completed" then "started" else "skipped" end, null, current_timestamp
+from Process_Event (state in ("completed","skipped") , Node_ID="PRED_NODE_ID") as pred 
+
+// The predecessor that triggers a new loop cycle
+insert into Process_Event (PM_ID, CASE_ID, Node_ID, Cycle_Num, state, Pay_Load, Time_stamp)
+select xorSplit.PM_ID, xorSplit.Case_ID, "XOR-JOIN-ID", xorSplit.Cycle_Num+1, "completed", null, current_timestamp
+from Process_Event (state="completed" and Node_ID="XOR-SPLIT_ID") as xorSplit inner join case_variables as CV
+on xorSplit.PM_ID = CV.PM_ID and xorSplit.Case_ID = CV.Case_ID
+where Evaluate(CV.variables,Cond3)= true
