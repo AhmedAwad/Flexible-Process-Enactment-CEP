@@ -1,8 +1,10 @@
 // create the schemas for events, tables, and named windows
 // Map of the event payload
-Create map schema Property_Values as (property string, value object)
+create map schema Property_Values as (property string, value object)
 // Schema for the event generated for a process instance progress
 create schema Process_Event(PM_ID int, CASE_ID int , Node_ID string, Cycle_Num int, State string, Pay_Load Property_Values, Time_stamp timestamp)
+//Cycle number will not work well when there are nested loops and a join node follows. In this case, the wrong cycles will be mixed
+// Therefore, we need to include more information about the cycle structure in the event properties
 
 //Create the table that holds case variables
 create table Case_Variables (PM_ID int, CASE_ID int, Variables Property_Values)
@@ -11,7 +13,23 @@ create table Case_Variables (PM_ID int, CASE_ID int, Variables Property_Values)
 create variable currentPM_ID = 1
 
 // functions
-create getPMFromContext() [ currentPM_ID]
+create expression string js:getPMFromContext() [ 
+    getPMFromContext();
+    function getPMFromContext(){
+
+        return currentPM_ID;
+    }
+
+];
+
+create expression boolean js:Evaluate( caseVariables, condition)
+[
+    Evaluate(caseVariables, condition);
+    function Evaluate(caseVariables, condition)
+    {
+
+    }
+];
 //History (named window)
 create window Execution_History.win:keepall() as Process_Event insert
 
@@ -27,9 +45,12 @@ select (st.PM_ID, st.CASE_ID, {}) from Process_Event(Node_ID="SE1", state="compl
 
 // Template to handle activity nodes that have a single predecessor
 insert into Process_Event(PM_ID, CASE_ID, Node_ID, Cycle_Num, state, Pay_Load, Time_stamp)
-select pred.PM_ID, pred.CASE_ID, "Activity_ID", Pred.Cycle_Num, case pred.state when "completed" then "started" else "skipped" end, CV.Variables, current_timestamp 
+select pred.PM_ID, pred.CASE_ID, "Activity_ID", Pred.Cycle_Num, 
+case when pred.state="completed" and  Evaluate(CV.variables, "input_condition") = true then "started"/* or completed depending on the type*/ else "skipped" end,
+CV.Variables, current_timestamp 
 From Process_Event as pred join Case_Variables as CV on pred.PM_ID = CV.PM_ID and pred.CASE_ID = CV.Case_ID
 where pred.state in ("completed", "skipped") and pred.Node_ID = "Pred_Node_ID"
+
 
 
 // Template to handle XOR-join, when one of the inputs is froming a loop
@@ -44,3 +65,26 @@ select xorSplit.PM_ID, xorSplit.Case_ID, "XOR-JOIN-ID", xorSplit.Cycle_Num+1, "c
 from Process_Event (state="completed" and Node_ID="XOR-SPLIT_ID") as xorSplit inner join case_variables as CV
 on xorSplit.PM_ID = CV.PM_ID and xorSplit.Case_ID = CV.Case_ID
 where Evaluate(CV.variables,Cond3)= true
+
+// AND-join template
+insert into Process_Event
+select pred.PM_ID, pred.Case_ID, "AND_JOIN_Node_ID", pred.cycle_num, case pred.state when "completed" then "completed" else "skipped" end, current_timestamp
+from Process_Event as pred
+where 
+pred.state in ("completed", "skipped")
+and (select count(1) from Execution_History as H where H.Node_ID in ("Predeccsor_Nodes_IDList") and H.Cycle_Num = Pred.Cycle_Num
+and H.State = Pred.State) = SIZE_OF_PREDECESSOR_LIST -// all predecessors have appeared with the same condition as the current pred
+// Not having already enacted the node in response for another response.
+and not exists (select 1 from Execution_History as H where H.Node_ID = "AND_JOIN_Node_ID" and H.Cycle_Num = Pred.Cycle_Num)
+
+
+// OR-join template
+insert into Process_Event
+select pred.PM_ID, pred.Case_ID, "OR_JOIN_Node_ID", pred.cycle_num, case pred.state when "completed" then "completed" else "skipped" end, current_timestamp
+from Process_Event as pred
+where
+pred.state in ("completed", "skipped")
+and (select count(1) from Execution_History as H where H.Node_ID in ("Predeccsor_Nodes_IDList") and H.Cycle_Num = pred.Cycle_Num 
+and H.state in ("completed", "skipped")) = SIZE_OF_PREDECESSOR_LIST // all predecessors have appeared in any condition of either skipped or completed
+// Not having already enacted the node in response for another response.
+and not exists (select 1 from Execution_History as H where H.Node_ID = "OR_JOIN_Node_ID" and H.Cycle_Num = Pred.Cycle_Num)
