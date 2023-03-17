@@ -2,7 +2,7 @@ package ee.ut.dsg.process.encatment.cep.events;
 
 import java.util.Map;
 
-public class Process_Event {
+public class ProcessEvent {
     private int pmID;
     private int caseID;
     private String nodeID;
@@ -11,7 +11,7 @@ public class Process_Event {
     private Map<String, Object> payLoad;
     private long timestamp;
 
-    public Process_Event(int PM_ID, int caseID, String node_ID, int CYCLE_NUM, String state, Map<String, Object> pay_Load, long timestamp) {
+    public ProcessEvent(int PM_ID, int caseID, String node_ID, int CYCLE_NUM, String state, Map<String, Object> pay_Load, long timestamp) {
         this.pmID = PM_ID;
         this.caseID = caseID;
         nodeID = node_ID;

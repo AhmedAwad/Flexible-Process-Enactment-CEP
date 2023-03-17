@@ -1,3 +1,7 @@
+/*I need to revisit the templates to fix the syntactic problems found from the
+** example processes.
+*/
+
 // create the schemas for events, tables, and named windows
 // Map of the event payload
 create map schema Property_Values as (property string, value object)
