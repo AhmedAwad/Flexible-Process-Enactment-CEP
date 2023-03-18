@@ -11,7 +11,7 @@
 //create schema ProcessEvent(pmID int, caseID int , nodeID string, cycleNum int, state string, Pay_Load Property_Values, Time_stamp timestamp)
 
 //Create the table that holds case variables
-create table Case_Variables (pmID int, caseID int, variables java.util.Map);
+create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);
 
 //Variables?
 create variable int currentpmID = 1;
@@ -69,7 +69,7 @@ select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, even
 
 // Start event -- this shall be injected from outside
 insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
-select getPMFromContext(currentpmID), Coalesce((select max(caseID)+1 from Execution_History where pmID = getPMFromContext(currentpmID)),1), "SE1",0,"completed", pred.payLoad, current_timestamp
+select getPMFromContext(currentpmID), Coalesce((select max(caseID)+1 from Execution_History where pmID = getPMFromContext(currentpmID)),1), "SE1",0,"completed", pred.payLoad, pred.timestamp
 from ProcessEvent(nodeID="SE1", state="started") as pred;
 //Inititate case variables as a response to the start event
 insert into Case_Variables (pmID, caseID, variables )
@@ -80,7 +80,7 @@ select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID="SE1", state="com
 @Name('Activity-A-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)
 select pred.pmID, pred.caseID, "A", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "started" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "SE1";
 
@@ -97,15 +97,25 @@ where CV.pmID = a.pmID and CV.caseID = a.caseID;
 // XOR-join, when one of the inputs is forming a loop
 //The loopless entry point
 @Name('XOR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
-select pred.pmID, pred.caseID, "XJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end, pred.payLoad, current_timestamp
-from ProcessEvent (state in ("completed","skipped") , nodeID="A") as pred;
+select pred.pmID, pred.caseID, "XJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed","skipped") , nodeID="A") as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID;
 
+
+// The looping part
+@Name('XOR-Join-loop') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "XJ-1", pred.cycleNum+1, pred.state,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed") , nodeID="XS-1") as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where evaluate(CV.variables, "cond3")=true;
 
 // OR-split
 @Name('OR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "OS-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
-pred.payLoad, current_timestamp
+pred.payLoad, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "XJ-1";
 
@@ -114,7 +124,7 @@ where pred.state in ("completed", "skipped") and pred.nodeID = "XJ-1";
 @Name('Activity-B-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "B", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond1") = true then "started" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1";
 
@@ -129,7 +139,7 @@ where CV.pmID = a.pmID and CV.caseID = a.caseID;
 @Name('AND-Split') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "AS-1", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond2") = true then "completed" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1";
 
@@ -138,7 +148,7 @@ where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1";
 @Name('Activity-C-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "C", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1";
 
@@ -152,7 +162,7 @@ where CV.pmID = a.pmID and CV.caseID = a.caseID;
 @Name('Activity-D-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "D", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1";
 
@@ -164,7 +174,7 @@ where CV.pmID = a.pmID and CV.caseID = a.caseID;
 // AND-join
 @Priority(5)
 @Name('AND-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
-select pred.pmID, pred.caseID, "AJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end,pred.payLoad, current_timestamp
+select pred.pmID, pred.caseID, "AJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end,pred.payLoad, pred.timestamp
 from ProcessEvent as pred
 where pred.state in ("completed", "skipped") and pred.nodeID in ("C","D")
 and (select count (*) from Execution_History as H where H.nodeID in ("C","D") and H.cycleNum = pred.cycleNum
@@ -178,8 +188,8 @@ and not exists (select 1 from Execution_History as H where H.nodeID = "AJ-1" and
 @Name('OR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "OJ-1", pred.cycleNum, case
 when (pred.state="completed" or (select count(1) from Execution_History as H where H.nodeID in ("B", "AJ-1") and H.cycleNum = pred.cycleNum and H.state="completed") >=1) then "completed" else "skipped" end,
-pred.payLoad, current_timestamp
-//pred.state when "completed" then "completed" else "skipped" end, pred.payLoad, current_timestamp
+pred.payLoad, pred.timestamp
+//pred.state when "completed" then "completed" else "skipped" end, pred.payLoad, pred.timestamp
 from ProcessEvent as pred
 where pred.state in ("completed", "skipped") and pred.nodeID in ("B", "AJ-1")
 and (select count(1) from Execution_History as H where H.nodeID in ("B", "AJ-1") and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID
@@ -192,7 +202,7 @@ and not exists (select 1 from Execution_History as H where H.nodeID = "OJ-1" and
 @Name('XOR-Split') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "XS-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
-CV.variables, current_timestamp
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "OJ-1";
 
@@ -200,8 +210,8 @@ where pred.state in ("completed", "skipped") and pred.nodeID = "OJ-1";
 // Template to handle activity nodes that have a single predecessor
 @Name('Activity-F-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "F", pred.cycleNum,
-case when pred.state="completed" and  evaluate(CV.variables, "Cond4") = true then "started" else "skipped" end,
-CV.variables, current_timestamp
+case when pred.state="completed" and  evaluate(CV.variables, "cond4") = true then "started" else "skipped" end,
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "XS-1";
 
@@ -209,11 +219,14 @@ where pred.state in ("completed", "skipped") and pred.nodeID = "XS-1";
 // End event
 @Name('End-Event') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "EE-1", pred.cycleNum,
-case when pred.state="completed" then "started" else "skipped" end,
-CV.variables, current_timestamp
+case when pred.state="completed" then "completed" else "skipped" end,
+CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "F";
 
+@Priority(100) on ProcessEvent(nodeID="EE-1", state="completed") as a
+delete from Execution_History as H
+where H.pmID = a.pmID and H.caseID = a.caseID;
 
 @Name('Execution-History') select count (*) as pmID from Execution_History as H where H.nodeID in ("C","D") and H.cycleNum = 0
                            and H.state = "skipped" and H.pmID = 1;
