@@ -1,5 +1,10 @@
+
+
+//create a context
+create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;
+
 @Audit
-@name('track-events') select  pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp  from ProcessEvent;
+@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp  from ProcessEvent;
 
 // This is the source of the BPMN
 //https://academic.signavio.com/p/editor?id=00c87d562dee4e7da346f0bc3bca9e19
@@ -11,26 +16,14 @@
 //create schema ProcessEvent(pmID int, caseID int , nodeID string, cycleNum int, state string, Pay_Load Property_Values, Time_stamp timestamp)
 
 //Create the table that holds case variables
-create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);
+context partitionedByPmIDAndCaseID create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);
 
-//Variables?
-create variable int currentpmID = 1;
-//Example specific variables
-create variable boolean cond1=true;
-create variable boolean cond2=false;
-create variable boolean cond4=false;
-create variable boolean cond3=true;
 
-// functions
-create expression int js:getPMFromContext(currentpmID) [
-    getPMFromContext(currentpmID);
-    function getPMFromContext(currentpmID){
 
-        return currentpmID;
-    }
 
-];
 
+
+context partitionedByPmIDAndCaseID
 create expression boolean js:evaluate(caseVariables, cond) [
     evaluate(caseVariables, cond);
     function evaluate(caseVariables, cond){
@@ -60,24 +53,29 @@ create expression boolean js:evaluate(caseVariables, cond) [
 
 
 //History (named window)
-create window Execution_History.win:keepall as  ProcessEvent;
+context partitionedByPmIDAndCaseID create window Execution_History.win:keepall as  ProcessEvent;
+
 
 @Priority(10)
-On ProcessEvent as event
+context partitionedByPmIDAndCaseID
 insert into Execution_History(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
-select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, event.payLoad, event.timestamp;
+select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, event.payLoad, event.timestamp from ProcessEvent as event
+where not exists (select 1 from Execution_History as H where H.pmID = event.pmID and H.caseID = event.caseID and
+      H.nodeID = "EE-1" and H.state ="completed");
 
 // Start event -- this shall be injected from outside
+context partitionedByPmIDAndCaseID 
 insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
-select getPMFromContext(currentpmID), Coalesce((select max(caseID)+1 from Execution_History where pmID = getPMFromContext(currentpmID)),1), "SE1",0,"completed", pred.payLoad, pred.timestamp
+select pred.pmID, Coalesce((select max(caseID)+1 from Execution_History where pmID = pred.pmID),1), "SE1",0,"completed", pred.payLoad, pred.timestamp
 from ProcessEvent(nodeID="SE1", state="started") as pred;
 //Inititate case variables as a response to the start event
+context partitionedByPmIDAndCaseID
 insert into Case_Variables (pmID, caseID, variables )
 select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID="SE1", state="completed") as st;
 
 // Activity A
 // Template to handle activity nodes that have a single predecessor
-@Name('Activity-A-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)
+@Name('Activity-A-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)
 select pred.pmID, pred.caseID, "A", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "started" else "skipped" end,
 CV.variables, pred.timestamp
@@ -85,6 +83,7 @@ From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and p
 where pred.state in ("completed", "skipped") and pred.nodeID = "SE1";
 
 //Update case variable on the completion of activity A
+context partitionedByPmIDAndCaseID 
 on ProcessEvent(nodeID="A", state="completed") as a
 update Case_Variables as CV set variables('cond1') = a.payLoad('cond1'),
 variables('cond2') = a.payLoad('cond2'),
@@ -94,86 +93,110 @@ where CV.pmID = a.pmID and CV.caseID = a.caseID;
 
 
 
+
 // XOR-join, when one of the inputs is forming a loop
 //The loopless entry point
-@Name('XOR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('XOR-Join') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "XJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end,
  CV.variables, pred.timestamp
 from ProcessEvent (state in ("completed","skipped") , nodeID="A") as pred join Case_Variables as CV
-on pred.pmID = CV.pmID and pred.caseID = CV.caseID;
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 
 // The looping part
-@Name('XOR-Join-loop') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('XOR-Join-loop') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "XJ-1", pred.cycleNum+1, pred.state,
  CV.variables, pred.timestamp
 from ProcessEvent (state in ("completed") , nodeID="XS-1") as pred join Case_Variables as CV
 on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where evaluate(CV.variables, "cond3")=true;
+where evaluate(CV.variables, "cond3")=true
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // OR-split
-@Name('OR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('OR-Join') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "OS-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
 pred.payLoad, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "XJ-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "XJ-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Activity B
 // Template to handle activity nodes that have a single predecessor
-@Name('Activity-B-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('Activity-B-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "B", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond1") = true then "started" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Update case variables in response to a completed activity B
+context partitionedByPmIDAndCaseID 
 on ProcessEvent(nodeID="B", state="completed") as a
 update Case_Variables as CV set variables('cond3') = a.payLoad('cond3'),
 variables('cond4') = a.payLoad('cond4')
-where CV.pmID = a.pmID and CV.caseID = a.caseID;
+where CV.pmID = a.pmID and CV.caseID = a.caseID
+and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // AND Split
 // Template to handle activity nodes that have a single predecessor
-@Name('AND-Split') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('AND-Split') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "AS-1", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond2") = true then "completed" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Activity C
 // Template to handle activity nodes that have a single predecessor
-@Name('Activity-C-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('Activity-C-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "C", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Update case variables in response to a completed activity C
+context partitionedByPmIDAndCaseID 
 on ProcessEvent(nodeID="C", state="completed") as a
 update Case_Variables as CV set variables('cond3') = a.payLoad('cond3')
-where CV.pmID = a.pmID and CV.caseID = a.caseID;
+where CV.pmID = a.pmID and CV.caseID = a.caseID
+and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Activity D
 // Template to handle activity nodes that have a single predecessor
-@Name('Activity-D-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('Activity-D-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "D", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Update case variables in response to a completed activity D
+context partitionedByPmIDAndCaseID 
 on ProcessEvent(nodeID="D", state="completed") as a
 update Case_Variables as CV set variables('cond4') = a.payLoad('cond4')
-where CV.pmID = a.pmID and CV.caseID = a.caseID;
+where CV.pmID = a.pmID and CV.caseID = a.caseID
+and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // AND-join
 @Priority(5)
-@Name('AND-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('AND-Join') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "AJ-1", pred.cycleNum, case pred.state when "completed" then "completed" else "skipped" end,pred.payLoad, pred.timestamp
 from ProcessEvent as pred
 where pred.state in ("completed", "skipped") and pred.nodeID in ("C","D")
@@ -181,11 +204,14 @@ and (select count (*) from Execution_History as H where H.nodeID in ("C","D") an
 and H.state = pred.state and H.pmID = pred.pmID) = 1
 // all predecessors have appeared with the same condition as the current pred
 // Not having already enacted the node in response for another response.
-and not exists (select 1 from Execution_History as H where H.nodeID = "AJ-1" and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID);
+//and not exists (select 1 from Execution_History as H where H.nodeID = "AJ-1" and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID
+//and H.caseID = pred.caseID)
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 
 // OR-join
-@Name('OR-Join') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('OR-Join') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "OJ-1", pred.cycleNum, case
 when (pred.state="completed" or (select count(1) from Execution_History as H where H.nodeID in ("B", "AJ-1") and H.cycleNum = pred.cycleNum and H.state="completed") >=1) then "completed" else "skipped" end,
 pred.payLoad, pred.timestamp
@@ -195,38 +221,49 @@ where pred.state in ("completed", "skipped") and pred.nodeID in ("B", "AJ-1")
 and (select count(1) from Execution_History as H where H.nodeID in ("B", "AJ-1") and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID
 and H.state in ("completed", "skipped")) = 1 // all predecessors have appeared in any condition of either skipped or completed
 // Not having already enacted the node in response for another response.
-and not exists (select 1 from Execution_History as H where H.nodeID = "OJ-1" and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID);
+//and not exists (select 1 from Execution_History as H where H.nodeID = "OJ-1" and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID)
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 
 // XOR-Split
-@Name('XOR-Split') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('XOR-Split') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "XS-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "OJ-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "OJ-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 // Activity F
 // Template to handle activity nodes that have a single predecessor
-@Name('Activity-F-Start') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Name('Activity-F-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "F", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond4") = true then "started" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "XS-1";
+where pred.state in ("completed", "skipped") and pred.nodeID = "XS-1"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
 
 // End event
-@Name('End-Event') insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
+@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)
 select pred.pmID, pred.caseID, "EE-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
 CV.variables, pred.timestamp
 From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
-where pred.state in ("completed", "skipped") and pred.nodeID = "F";
+where pred.state in ("completed", "skipped") and pred.nodeID = "F"
+and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
-@Priority(100) on ProcessEvent(nodeID="EE-1", state="completed") as a
+
+@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID="EE-1", state="completed") as a
 delete from Execution_History as H
-where H.pmID = a.pmID and H.caseID = a.caseID;
+where H.pmID = a.pmID and H.caseID = a.caseID
+and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE-1" and H.state ="completed");
 
-@Name('Execution-History') select count (*) as pmID from Execution_History as H where H.nodeID in ("C","D") and H.cycleNum = 0
-                           and H.state = "skipped" and H.pmID = 1;
+
+@Name('Execution-History') context partitionedByPmIDAndCaseID select count (*) as pmID from Execution_History as H where H.pmID = 1;
