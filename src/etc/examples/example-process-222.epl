@@ -151,7 +151,7 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "AS-1", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond2") = true then "completed" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "OS-1"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");
@@ -162,7 +162,7 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "C", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");
@@ -181,11 +181,14 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "D", pred.cycleNum,
 case when pred.state="completed" then "started" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "AS-1"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");
-
+// Activity E
+// It is a multiple instance parallel task.
+// We can treat that as an AND-block
+//If activity is multiple instance sequential, we can treat that as a loop block.
 // Update case variables in response to a completed activity D
 context partitionedByPmIDAndCaseID 
 on ProcessEvent(nodeID="D", state="completed") as a
@@ -231,7 +234,7 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "XS-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "OJ-1"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");
@@ -242,7 +245,7 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "F", pred.cycleNum,
 case when pred.state="completed" and  evaluate(CV.variables, "cond4") = true then "started" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "XS-1"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");
@@ -253,7 +256,7 @@ H.nodeID = "EE-1" and H.state ="completed");
 select pred.pmID, pred.caseID, "EE-1", pred.cycleNum,
 case when pred.state="completed" then "completed" else "skipped" end,
 CV.variables, pred.timestamp
-From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
 where pred.state in ("completed", "skipped") and pred.nodeID = "F"
 and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and
 H.nodeID = "EE-1" and H.state ="completed");

@@ -25,6 +25,28 @@ public class Runner {
     public static void main(String[] args) {
 
 
+        generateRules();
+        System.exit(0);
+        enact();
+
+
+
+    }
+
+    public static void generateRules()
+    {
+        File input;
+
+        input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222.bpmn");
+
+        RulesGenerator rulesGenerator = new RulesGenerator(input);
+
+//        rulesGenerator.getNodeIDs().forEach( id ->{
+//            System.out.printf("Node ID:%s\n", id);
+//        });
+        System.out.println(rulesGenerator.generateEPLModule());
+    }
+    private static void enact() {
         EPCompiler compiler = EPCompilerProvider.getCompiler();
 
         Configuration configuration = new Configuration();
@@ -137,8 +159,6 @@ public class Runner {
                 System.out.println(e.getMessage());
             }
         }
-
-
     }
 
     private static void handleActivityA(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
