@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="bpmnq-1.0.3-SNAPSHOT-latest">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/src/main/resources/bpmnq-1.0.3-SNAPSHOT-latest.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

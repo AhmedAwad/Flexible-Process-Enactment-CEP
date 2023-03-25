@@ -1,5 +1,6 @@
 package ee.ut.dsg.process.encatment.cep;
 
+import com.bpmnq.*;
 import org.camunda.bpm.model.bpmn.Bpmn;
 import org.camunda.bpm.model.bpmn.BpmnModelInstance;
 import org.camunda.bpm.model.bpmn.GatewayDirection;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+
 public class RulesGenerator {
 
     private File bpmnModelFile;
@@ -27,6 +29,75 @@ public class RulesGenerator {
         instance = Bpmn.readModelFromFile(file);
     }
 
+    private QueryGraph buildLoopCheckQueryGraph()
+    {
+        QueryGraph result = new QueryGraph();
+
+        GraphObject xorSplit = new GraphObject("-XOR-Split-1", "XOR-Split", GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.XOR_SPLIT.asType2String());
+        GraphObject xorJoin = new GraphObject("-XOR-Join-1", "XOR-Join", GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.XOR_JOIN.asType2String());
+
+        GraphObject generic = new GraphObject("-1", "-1", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+        result.add(xorSplit);
+        result.add(xorJoin);
+        result.add(generic);
+
+        result.addEdge(generic, xorJoin);
+        Path p = new Path(xorJoin, xorSplit, generic.getID());
+        Path p2 = new Path(xorSplit, xorJoin, generic.getID());
+        result.add(p);
+        result.add(p2);
+        result.addNegativePath(xorSplit, generic);
+        return result;
+    }
+    public ProcessGraph buildBPMNQProcessGraph()
+    {
+        ProcessGraph result = new ProcessGraph();
+        for (FlowNode elem : instance.getModelElementsByType(FlowNode.class))
+        {
+            GraphObject obj=null;
+            if (elem instanceof org.camunda.bpm.model.bpmn.impl.instance.StartEventImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.EVENT, GraphObject.EventType.START.asType2String());
+
+            }
+            else if (elem instanceof org.camunda.bpm.model.bpmn.impl.instance.EndEventImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.EVENT, GraphObject.EventType.END.asType2String());
+            }
+            else if (elem instanceof org.camunda.bpm.model.bpmn.impl.instance.TaskImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.TASK.asType2String());
+            }
+            else if (elem instanceof ParallelGatewayImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.GATEWAY,
+                        ((ParallelGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging ? GraphObject.GateWayType.AND_JOIN.asType2String() : GraphObject.GateWayType.AND_SPLIT.asType2String());
+            }
+            else if (elem instanceof ExclusiveGatewayImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.GATEWAY,
+                        ((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging ? GraphObject.GateWayType.XOR_JOIN.asType2String() : GraphObject.GateWayType.XOR_SPLIT.asType2String());
+            }
+            else if (elem instanceof InclusiveGatewayImpl)
+            {
+                obj = new GraphObject(elem.getId(), elem.getName(), GraphObject.GraphObjectType.GATEWAY,
+                        ((InclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging ? GraphObject.GateWayType.OR_JOIN.asType2String() : GraphObject.GateWayType.OR_SPLIT.asType2String());
+            }
+            if (obj != null)
+                result.add(obj);
+        }
+        for (SequenceFlow flow: instance.getModelElementsByType(SequenceFlow.class))
+        {
+            GraphObject source = result.getNodeByID(flow.getSource().getId());
+            GraphObject target = result.getNodeByID(flow.getTarget().getId());
+            if ( source != null && target != null)
+            {
+                result.addEdge(source,target);
+            }
+        }
+
+        return result;
+    }
     public String generateEPLModule()
     {
         StringBuilder sb = new StringBuilder();
@@ -214,6 +285,19 @@ public class RulesGenerator {
                     if (((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging)
                     {
                         //We need to check if there is a loop
+
+                        QueryGraph qry = buildLoopCheckQueryGraph();
+                        ProcessGraph graph = buildBPMNQProcessGraph();
+                        MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
+                        qp.stopAtFirstMatch=true;
+                        ProcessGraph result = qp.runQueryAgainstModel(qry,graph);
+                        if (result.nodes.size() > 0)
+                        {
+                            // there is a loop structure and we have to have separate rules
+                        }
+                        else {
+
+                        }
                     }
                     else
                     {

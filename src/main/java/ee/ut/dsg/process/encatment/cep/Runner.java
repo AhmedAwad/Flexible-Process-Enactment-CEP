@@ -5,7 +5,9 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import com.bpmnq.ProcessGraph;
 import com.espertech.esper.common.client.EPCompiled;
 import com.espertech.esper.common.client.EPException;
 import com.espertech.esper.common.client.EventSender;
@@ -24,7 +26,8 @@ public class Runner {
 
     public static void main(String[] args) {
 
-
+//        obtainProcessGraph();
+//        System.exit(0);
         generateRules();
         System.exit(0);
         enact();
@@ -33,6 +36,18 @@ public class Runner {
 
     }
 
+    public static void obtainProcessGraph()
+    {
+        File input;
+
+        input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222.bpmn");
+
+        RulesGenerator rulesGenerator = new RulesGenerator(input);
+
+        ProcessGraph graph = rulesGenerator.buildBPMNQProcessGraph();
+        System.out.println(graph.getActivities().stream().map( e -> e.getName()).collect(Collectors.toList()).toString());
+
+    }
     public static void generateRules()
     {
         File input;

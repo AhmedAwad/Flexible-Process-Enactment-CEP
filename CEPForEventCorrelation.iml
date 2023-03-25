@@ -21,5 +21,8 @@
     <orderEntry type="library" name="Maven: org.codehaus.janino:janino:3.1.0" level="project" />
     <orderEntry type="library" name="Maven: org.antlr:antlr4-runtime:4.7.2" level="project" />
     <orderEntry type="library" name="Maven: org.codehaus.janino:commons-compiler:3.1.0" level="project" />
+    <orderEntry type="library" name="Maven: org.camunda.bpm.model:camunda-bpmn-model:7.18.0" level="project" />
+    <orderEntry type="library" name="Maven: org.camunda.bpm.model:camunda-xml-model:7.18.0" level="project" />
+    <orderEntry type="library" name="bpmnq-1.0.3-SNAPSHOT-latest" level="project" />
   </component>
 </module>
