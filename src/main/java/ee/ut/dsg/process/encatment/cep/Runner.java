@@ -28,9 +28,9 @@ public class Runner {
 
 //        obtainProcessGraph();
 //        System.exit(0);
-        generateRules();
-        System.exit(0);
-        enact();
+//        generateRules();
+//        System.exit(0);
+        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V6.bpmn");
 
 
 
@@ -61,7 +61,21 @@ public class Runner {
 //        });
         System.out.println(rulesGenerator.generateEPLModule());
     }
-    private static void enact() {
+    private static void enact(String inputBPMNFile) {
+
+        File input = new File(inputBPMNFile);
+        RulesGenerator rulesGenerator = new RulesGenerator(input);
+
+        String rules = rulesGenerator.generateEPLModule();
+        String moduleFileName = inputBPMNFile.substring(0, inputBPMNFile.indexOf(".")) + ".epl";
+//        try {
+//            BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
+//            writer.write(rules);
+//            writer.close();
+//        } catch (IOException e) {
+//            throw new RuntimeException(e);
+//        }
+
         EPCompiler compiler = EPCompilerProvider.getCompiler();
 
         Configuration configuration = new Configuration();
@@ -76,11 +90,15 @@ public class Runner {
         EPRuntime runtime;
 
 
-        InputStream inputFile = Runner.class.getClassLoader().getResourceAsStream("etc/examples/example-process-222.epl");
-        if (inputFile == null) {
+        InputStream inputFile = null;
+        //Runner.class.getClassLoader().getResourceAsStream("etc/examples/example-process-222.epl");
+//        if (inputFile == null) {
             try {
-                inputFile = Files.newInputStream(Paths.get("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\example-process-222.epl"));
+//                inputFile = Files.newInputStream(Paths.get("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\example-process-222.epl"));
+                inputFile = Files.newInputStream(Paths.get(moduleFileName));
                 Module module = compiler.readModule(inputFile, "example-process-222.epl");
+
+//                Module module = compiler.parseModule(rules);
 
                 CompilerArguments compArgs = new CompilerArguments(configuration);
                 EPCompiled compiled = compiler.compile(module, compArgs);
@@ -156,11 +174,11 @@ public class Runner {
 //                        System.out.printf("Number of events for case 1 is %d\n", Integer.valueOf(newData[i].get("pmID").toString()));
 //                });
                 Map<String, Object> variables = new HashMap<>();
-                variables.put("cond1", Boolean.TRUE);
-                variables.put("cond2", Boolean.TRUE);
-                variables.put("cond3", Boolean.FALSE);
-                variables.put("cond4", Boolean.TRUE);
-                for (int i = 1; i <=10; i++) {
+                variables.put("Cond1", Boolean.TRUE);
+                variables.put("Cond2", Boolean.TRUE);
+                variables.put("Cond3", Boolean.FALSE);
+                variables.put("Cond4", Boolean.TRUE);
+                for (int i = 1; i <=1; i++) {
                     ProcessEvent startNewProcessInstance = new ProcessEvent(1, i, "SE1", 0, "completed"
                             , variables, System.currentTimeMillis());
 
@@ -173,7 +191,7 @@ public class Runner {
                 e.printStackTrace();
                 System.out.println(e.getMessage());
             }
-        }
+//        }
     }
 
     private static void handleActivityA(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
