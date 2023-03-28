@@ -30,7 +30,7 @@ public class Runner {
 //        System.exit(0);
 //        generateRules();
 //        System.exit(0);
-        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V6.bpmn");
+        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV1.bpmn");
 
 
 
@@ -68,13 +68,13 @@ public class Runner {
 
         String rules = rulesGenerator.generateEPLModule();
         String moduleFileName = inputBPMNFile.substring(0, inputBPMNFile.indexOf(".")) + ".epl";
-//        try {
-//            BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
-//            writer.write(rules);
-//            writer.close();
-//        } catch (IOException e) {
-//            throw new RuntimeException(e);
-//        }
+        try {
+            BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
+            writer.write(rules);
+            writer.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         EPCompiler compiler = EPCompilerProvider.getCompiler();
 
@@ -158,6 +158,11 @@ public class Runner {
                         handleActivityD(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
 
                     }
+                    else if (nodeID.equals("E") && state.equals("started"))
+                    {
+                        handleActivityE(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+
+                    }
                     else if (nodeID.equals("F") && state.equals("started"))
                     {
                         handleActivityF(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
@@ -166,20 +171,22 @@ public class Runner {
                 });
 
 
-//                EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "Execution-History");
-//
-//                statement2.addListener((newData, oldData, stat, runt) ->{
-//
-//                    for (int i = 0; i < newData.length;i++)
-//                        System.out.printf("Number of events for case 1 is %d\n", Integer.valueOf(newData[i].get("pmID").toString()));
-//                });
+                EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-case-variables");
+
+                statement2.addListener((newData, oldData, stat, runt) ->{
+
+                    for (int i = 0; i < newData.length;i++)
+                        System.out.printf("Record of process model %d and case %d variables  %S\n", Integer.valueOf(newData[i].get("pmID").toString())
+                        ,Integer.valueOf(newData[i].get("caseID").toString())
+                        ,Integer.valueOf(newData[i].get("variables").toString()));
+                });
                 Map<String, Object> variables = new HashMap<>();
                 variables.put("Cond1", Boolean.TRUE);
                 variables.put("Cond2", Boolean.TRUE);
-                variables.put("Cond3", Boolean.FALSE);
-                variables.put("Cond4", Boolean.TRUE);
+                variables.put("Cond3", Boolean.TRUE);
+                variables.put("Cond4", Boolean.FALSE);
                 for (int i = 1; i <=1; i++) {
-                    ProcessEvent startNewProcessInstance = new ProcessEvent(1, i, "SE1", 0, "completed"
+                    ProcessEvent startNewProcessInstance = new ProcessEvent(2, i, "SE1", 0, "started"
                             , variables, System.currentTimeMillis());
 
                     sender.sendEvent(startNewProcessInstance);
@@ -203,26 +210,26 @@ public class Runner {
 //        variables.put("cond3", Boolean.FALSE);
         double v =Math.random();
         if ( v < 0.25) {
-            variables.put("cond1", Boolean.TRUE);
-            variables.put("cond2", Boolean.TRUE);
+            variables.put("Cond1", Boolean.TRUE);
+            variables.put("Cond2", Boolean.TRUE);
 
         }
         else if (v < 0.5)
         {
-            variables.put("cond1", Boolean.TRUE);
-            variables.put("cond2", Boolean.FALSE);
+            variables.put("Cond1", Boolean.TRUE);
+            variables.put("Cond2", Boolean.FALSE);
         }
         else if (v < 0.75)
         {
-            variables.put("cond1", Boolean.FALSE);
-            variables.put("cond2", Boolean.TRUE);
+            variables.put("Cond1", Boolean.FALSE);
+            variables.put("Cond2", Boolean.TRUE);
         }
         else
         {
-            variables.put("cond1", Boolean.FALSE);
-            variables.put("cond2", Boolean.FALSE);
+            variables.put("Cond1", Boolean.FALSE);
+            variables.put("Cond2", Boolean.FALSE);
         }
-//        variables.put("cond1", Boolean.TRUE);
+        variables.put("Cond1", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*10000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -242,17 +249,17 @@ public class Runner {
             variables.put(k, payLoad.get(k));
         double v =Math.random();
         if ( v < 0.5) {
-            variables.put("cond3", Boolean.TRUE);
+            variables.put("Cond3", Boolean.TRUE);
 
 
         }
         else
         {
-            variables.put("cond3", Boolean.FALSE);
+            variables.put("Cond3", Boolean.FALSE);
 
         }
 
-//        variables.put("cond3", Boolean.TRUE);
+        variables.put("Cond3", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -272,17 +279,17 @@ public class Runner {
             variables.put(k, payLoad.get(k));
         double v =Math.random();
         if ( v < 0.5) {
-            variables.put("cond3", Boolean.TRUE);
+            variables.put("Cond3", Boolean.TRUE);
 
 
         }
         else
         {
-            variables.put("cond3", Boolean.FALSE);
+            variables.put("Cond3", Boolean.FALSE);
 
         }
 
-//        variables.put("cond3", Boolean.FALSE);
+        variables.put("Cond3", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -302,15 +309,45 @@ public class Runner {
             variables.put(k, payLoad.get(k));
         double v =Math.random();
         if ( v < 0.5) {
-            variables.put("cond4", Boolean.TRUE);
+            variables.put("Cond4", Boolean.TRUE);
 
 
         }
         else
         {
-            variables.put("cond4", Boolean.FALSE);
+            variables.put("Cond4", Boolean.FALSE);
 
         }
+
+//        variables.put("cond3", Boolean.FALSE);
+        try {
+            Thread.sleep((long) (v*1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityE(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+        Map<String, Object> variables = new HashMap<>();
+
+        for (String k :payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        double v =Math.random();
+//        if ( v < 0.5) {
+//            variables.put("Cond4", Boolean.TRUE);
+//
+//
+//        }
+//        else
+//        {
+//            variables.put("Cond4", Boolean.FALSE);
+//
+//        }
 
 //        variables.put("cond3", Boolean.FALSE);
         try {

@@ -33,16 +33,21 @@ public class RulesGenerator {
         GraphObject xorJoin = new GraphObject(xorJoinID, xorJoinName, GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.XOR_JOIN.asType2String());
 
         GraphObject generic = new GraphObject(looplessEntryNode, "-1", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+        GraphObject generic2 = new GraphObject("-2", "-2", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+
         result.add(xorSplit);
         result.add(xorJoin);
         result.add(generic);
+        result.add(generic2);
 
         result.addEdge(generic, xorJoin);
+        result.addEdge(xorSplit, generic2);
         Path p = new Path(xorJoin, xorSplit, generic.getID());
         Path p2 = new Path(xorSplit, xorJoin, generic.getID());
         result.add(p);
         result.add(p2);
         result.addNegativePath(xorSplit, generic);
+        result.addNegativePath(generic2,xorJoin);
         return result;
     }
 
@@ -91,10 +96,12 @@ public class RulesGenerator {
                 "@Audit\n" +
                 "@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp  from ProcessEvent;\n");
 
+
         //Add the case variables table
         sb.append("//Create the table that holds case variables\n" +
                 "context partitionedByPmIDAndCaseID create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);\n");
 
+        sb.append("@name('track-case-variables') context partitionedByPmIDAndCaseID select  pmID, caseID, variables from Case_Variables;\n");
         sb.append("context partitionedByPmIDAndCaseID\n" +
                 "create expression boolean js:evaluate(caseVariables, cond) [\n" +
                 "    evaluate(caseVariables, cond);\n" +
@@ -145,7 +152,7 @@ public class RulesGenerator {
                         "//Inititate case variables as a response to the start event\n" +
                         "@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID\n" +
                         "insert into Case_Variables (pmID, caseID, variables )\n" +
-                        "select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=\"completed\") as st;\n");
+                        "select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=\"started\") as st;\n");
             } else if (elem instanceof EndEventImpl) {
 
                 //Generate a skipped or completed event based on the predecessor
@@ -185,11 +192,11 @@ public class RulesGenerator {
                     sb.append("//Update case variable on the completion of activity " + elem.getName() + "\n" +
                             "context partitionedByPmIDAndCaseID \n" +
                             "on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=\"completed\") as a\n" +
-                            "update Case_Variables as CV ");
+                            "update Case_Variables as CV set");
                     String updates = "";
                     for (DataOutput doa : ((TaskImpl) elem).getIoSpecification().getDataOutputs()) {
 
-                        updates += "set variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
+                        updates += " variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
                     }
                     sb.append(updates.substring(0, updates.length() - 2)).append("\n");
                     sb.append("where CV.pmID = a.pmID and CV.caseID = a.caseID;\n");
@@ -272,7 +279,7 @@ public class RulesGenerator {
                                     "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
                                     "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when \"completed\" then \"completed\" else \"skipped\" end,\n" +
                                     " CV.variables, pred.timestamp\n" +
-                                    "from ProcessEvent (state in (\"completed\",\"skipped\") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
+                                    "from ProcessEvent (state in (\"completed\") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
                                     "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
 
                             //Now, let's handle the loop entry point
@@ -287,13 +294,13 @@ public class RulesGenerator {
                                         sb.append("@Name('XOR-Join-loop-")
                                                 .append(elem.getName())
                                                 .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n")
-                                                .append("select pred.pmID, pred.caseID, \"+elem.getName()+\", pred.cycleNum+1, pred.state,\n")
+                                                .append("select pred.pmID, pred.caseID, \""+elem.getName()+"\", pred.cycleNum+1, pred.state,\n")
                                                 .append(" CV.variables, pred.timestamp\n")
                                                 .append("from ProcessEvent (state in (\"completed\") , nodeID = \"")
                                                 .append(s.getSource().getName())
                                                 .append("\") as pred join Case_Variables as CV\n")
                                                 .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n")
-                                                .append("where evaluate(CV.variables, \"cond3\")=true;\n");
+                                                .append("where evaluate(CV.variables, \""+condition+"\")=true;\n");
                                     }
                                 }
                             }
@@ -309,7 +316,7 @@ public class RulesGenerator {
                                 "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
                                 "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when \"completed\" then \"completed\" else \"skipped\" end,\n" +
                                 " CV.variables, pred.timestamp\n" +
-                                "from ProcessEvent (state in (\"completed\",\"skipped\") , nodeID in\"" + inList + "\") as pred join Case_Variables as CV\n" +
+                                "from ProcessEvent (state in (\"completed\"), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
                                 "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
                     }
                 } else {
