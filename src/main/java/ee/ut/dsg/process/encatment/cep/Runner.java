@@ -30,7 +30,7 @@ public class Runner {
 //        System.exit(0);
 //        generateRules();
 //        System.exit(0);
-        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV1.bpmn");
+        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
 
 
 
@@ -183,8 +183,8 @@ public class Runner {
                 Map<String, Object> variables = new HashMap<>();
                 variables.put("Cond1", Boolean.TRUE);
                 variables.put("Cond2", Boolean.TRUE);
-                variables.put("Cond3", Boolean.TRUE);
-                variables.put("Cond4", Boolean.FALSE);
+                variables.put("Cond3", Boolean.FALSE);
+                variables.put("Cond4", Boolean.TRUE);
                 for (int i = 1; i <=1; i++) {
                     ProcessEvent startNewProcessInstance = new ProcessEvent(2, i, "SE1", 0, "started"
                             , variables, System.currentTimeMillis());
@@ -259,7 +259,7 @@ public class Runner {
 
         }
 
-        variables.put("Cond3", Boolean.TRUE);
+//        variables.put("Cond3", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -289,7 +289,7 @@ public class Runner {
 
         }
 
-        variables.put("Cond3", Boolean.TRUE);
+//        variables.put("Cond3", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
