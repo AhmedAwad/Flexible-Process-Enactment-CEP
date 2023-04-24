@@ -30,7 +30,7 @@ public class Runner {
 //        System.exit(0);
 //        generateRules();
 //        System.exit(0);
-        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
+        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\IrreducibleLoop.bpmn");
 
 
 
@@ -185,8 +185,8 @@ public class Runner {
                 variables.put("Cond2", Boolean.TRUE);
                 variables.put("Cond3", Boolean.FALSE);
                 variables.put("Cond4", Boolean.TRUE);
-                for (int i = 1; i <=1; i++) {
-                    ProcessEvent startNewProcessInstance = new ProcessEvent(2, i, "SE1", 0, "started"
+                for (int i = 1; i <=2; i++) {
+                    ProcessEvent startNewProcessInstance = new ProcessEvent(2, i, "SE-1", 0, "started"
                             , variables, System.currentTimeMillis());
 
                     sender.sendEvent(startNewProcessInstance);

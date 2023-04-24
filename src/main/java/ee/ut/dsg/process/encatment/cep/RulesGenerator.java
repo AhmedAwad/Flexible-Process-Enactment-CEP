@@ -26,10 +26,35 @@ public class RulesGenerator {
     private static final String loopEntryNode = "-XOR-Split-1";
     private static final String xorJoin = "-XOR-Join-1";
 
+    private ProcessGraph process;
+
     public RulesGenerator(File file) {
         instance = Bpmn.readModelFromFile(file);
     }
 
+    private QueryGraph buildUnstructuredLoopORJoinCheck(String orJoinID, String orJoinName)
+    {
+        QueryGraph result = new QueryGraph();
+        GraphObject orJoin = new GraphObject(orJoinID, orJoinName, GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.OR_JOIN.asType2String());
+
+        GraphObject generic = new GraphObject("-1", "-1", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+        GraphObject generic2 = new GraphObject("-2", "-2", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+
+        result.add(orJoin);
+        result.add(generic);
+        result.add(generic2);
+
+        result.addEdge(generic2, orJoin);
+
+        Path p = new Path(generic, generic2, orJoin.getID());
+        Path p2 = new Path(orJoin, generic2, generic.getID());
+
+        result.add(p);
+        result.add(p2);
+
+
+        return result;
+    }
     private QueryGraph buildLoopCheckQueryGraph(String xorJoinID, String xorJoinName) {
         QueryGraph result = new QueryGraph();
 
@@ -230,8 +255,28 @@ public class RulesGenerator {
                 }
             } else if (elem instanceof InclusiveGatewayImpl) {
                 if (((InclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
+                    // We need to check if the OR join is part of an unstructured loop, where some branches are decided and others are from the looping entry
+                    QueryGraph qry = buildUnstructuredLoopORJoinCheck(elem.getId(), elem.getName());
+                    if (process == null)
+                        process = buildBPMNQProcessGraph();
+                    MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
+                    qp.stopAtFirstMatch = false;
+                    ProcessGraph result = qp.runQueryAgainstModel(qry, process);
+                    if (result.nodes.size() > 0)
+                    {
+                        sb.append("// OR-join\n" +
+                                "@Name('OR-Join-unstructured-loop-"+elem.getName()+"') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                                "select pred.pmID, pred.caseID, \""+elem.getName()+"\", pred.cycleNum, case\n" +
+                                "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                                "pred.payLoad, pred.timestamp\n" +
+                                "from ProcessEvent as pred\n" +
+                                "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
+                                "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                                "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = 0;\n");
+                    }
+
                     sb.append("// OR-join\n" +
-                            "@Name('OR-Join') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                            "@Name('OR-Join-"+elem.getName()+"') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
                             "select pred.pmID, pred.caseID, \"OJ-1\", pred.cycleNum, case\n" +
                             "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                             "pred.payLoad, pred.timestamp\n" +
@@ -239,6 +284,7 @@ public class RulesGenerator {
                             "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
                             "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
                             "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = " + (predecessors.size() - 1) + ";\n");
+
                 } else {
                     SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
                     String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
@@ -257,10 +303,12 @@ public class RulesGenerator {
                     //We need to check if there is a loop
 
                     QueryGraph qry = buildLoopCheckQueryGraph(elem.getId(), elem.getName());
-                    ProcessGraph graph = buildBPMNQProcessGraph();
+                    if (process == null)
+                        process = buildBPMNQProcessGraph();
                     MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
                     qp.stopAtFirstMatch = false;
-                    ProcessGraph result = qp.runQueryAgainstModel(qry, graph);
+
+                    ProcessGraph result = qp.runQueryAgainstModel(qry, process);
                     if (result.nodes.size() > 0) {
                         // there is a loop structure, and we have to have separate rules
                         GraphObject match = result.getNodeByID(elem.getId());
