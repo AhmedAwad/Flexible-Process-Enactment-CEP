@@ -55,6 +55,78 @@ public class RulesGenerator {
 
         return result;
     }
+
+    private QueryGraph buildQueryToCheckCyclicReachabilityOfORJoinInput(String inputNodeID, String inputNodeName, GraphObject.GraphObjectType type1, String type2, String orJoinID, String orJoinName)
+    {
+        QueryGraph query = new QueryGraph();
+        GraphObject orJoin = new GraphObject(orJoinID,orJoinName, GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.OR_JOIN.asType2String());
+        GraphObject input = new GraphObject(inputNodeID,inputNodeName, type1, type2);
+
+        query.add(orJoin);
+        query.add(input);
+        query.addEdge(input, orJoin);
+
+        Path p = new Path(orJoin,input);
+
+
+        query.add(p);
+
+        return query;
+
+    }
+    private QueryGraph buildQueryToCheckAcyclicReachabilityOfORJoinInput(String inputNodeID, String inputNodeName, GraphObject.GraphObjectType type1, String type2, String orJoinID, String orJoinName)
+    {
+        QueryGraph query = new QueryGraph();
+        GraphObject orJoin = new GraphObject(orJoinID,orJoinName, GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.OR_JOIN.asType2String());
+        GraphObject startEvent = new GraphObject("-1","$#", GraphObject.GraphObjectType.EVENT, GraphObject.EventType.START.asType2String());
+        GraphObject input = new GraphObject(inputNodeID,inputNodeName, type1, type2);
+
+        query.add(orJoin);
+        query.add(startEvent);
+        query.add(input);
+        query.addEdge(input, orJoin);
+
+        Path p = new Path(startEvent, orJoin);
+        p.setPathEvaluaiton(Path.PathEvaluation.ACYCLIC);
+        Path p2 = new Path(startEvent, input, orJoin.toString());
+        p2.setPathEvaluaiton(Path.PathEvaluation.ACYCLIC);
+
+        query.add(p);
+        query.add(p2);
+        return query;
+
+    }
+    private QueryGraph buildUnstructuredORBlocK(String orJoinID, String orJoinName)
+    {
+        QueryGraph query = new QueryGraph();
+
+        GraphObject orJoin = new GraphObject(orJoinID,orJoinName, GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.OR_JOIN.asType2String());
+        GraphObject split = new GraphObject("-1","?split", GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.GENERIC_SPLIT.asType2String());
+
+        GraphObject in1 = new GraphObject("-2", "?in1", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+//        GraphObject in2 = new GraphObject("-3", "?in2", GraphObject.GraphObjectType.ACTIVITY, GraphObject.ActivityType.GENERIC_SHAPE.asType2String());
+        GraphObject out = new GraphObject("-4", "?out", GraphObject.GraphObjectType.GATEWAY, GraphObject.GateWayType.GENERIC_SPLIT.asType2String());
+
+        query.add(orJoin);
+        query.add(split);
+        query.add(in1);
+//        query.add(in2);
+        query.add(out);
+
+        query.addEdge(in1, orJoin);
+//        query.addEdge(in2, orJoin);
+        Path p1 = new Path(split, in1,"?out");
+        p1.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
+        Path p2 = new Path(split, orJoin, "?out");
+        p2.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
+        Path p3 = new Path(out, in1, "?split");
+        p3.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
+
+        query.add(p1);
+        query.add(p2);
+        query.add(p3);
+        return query;
+    }
     private QueryGraph buildLoopCheckQueryGraph(String xorJoinID, String xorJoinName) {
         QueryGraph result = new QueryGraph();
 
@@ -176,7 +248,7 @@ public class RulesGenerator {
                 sb.append("// Start event -- this shall be injected from outside\n" +
                         "@Name('Start-Event-"+elem.getName()+"') context partitionedByPmIDAndCaseID " +
                         "insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, Coalesce((select max(caseID)+1 from Execution_History where pmID = pred.pmID),1), \"" + elem.getName() + "\",0," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\",0," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
                         "from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as pred;\n" +
                         "//Inititate case variables as a response to the start event\n" +
                         "@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID\n" +
@@ -184,11 +256,14 @@ public class RulesGenerator {
                         "select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as st;\n");
             } else if (elem instanceof EndEventImpl) {
 
+                SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+                String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
                 //Generate a skipped or completed event based on the predecessor
                 sb.append("// End event\n" +
                         "@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
                         "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
-                        "case when pred.state=" + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                        "case when pred.state=" + COMPLETED + "  and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                         "CV.variables, pred.timestamp\n" +
                         "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
                         "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
@@ -256,34 +331,7 @@ public class RulesGenerator {
             } else if (elem instanceof InclusiveGatewayImpl) {
                 if (((InclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
                     // We need to check if the OR join is part of an unstructured loop, where some branches are decided and others are from the looping entry
-                    QueryGraph qry = buildUnstructuredLoopORJoinCheck(elem.getId(), elem.getName());
-                    if (process == null)
-                        process = buildBPMNQProcessGraph();
-                    MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
-                    qp.stopAtFirstMatch = false;
-                    ProcessGraph result = qp.runQueryAgainstModel(qry, process);
-                    if (result.nodes.size() > 0)
-                    {
-                        sb.append("// OR-join\n" +
-                                "@Name('OR-Join-unstructured-loop-"+elem.getName()+"') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                                "select pred.pmID, pred.caseID, \""+elem.getName()+"\", pred.cycleNum, case\n" +
-                                "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                                "pred.payLoad, pred.timestamp\n" +
-                                "from ProcessEvent as pred\n" +
-                                "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
-                                "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
-                                "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = 0;\n");
-                    }
-
-                    sb.append("// OR-join\n" +
-                            "@Name('OR-Join-"+elem.getName()+"') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                            "select pred.pmID, pred.caseID, \"OJ-1\", pred.cycleNum, case\n" +
-                            "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                            "pred.payLoad, pred.timestamp\n" +
-                            "from ProcessEvent as pred\n" +
-                            "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
-                            "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
-                            "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = " + (predecessors.size() - 1) + ";\n");
+                    handleORJoin(sb, elem, predecessors, inList);
 
                 } else {
                     SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
@@ -372,6 +420,7 @@ public class RulesGenerator {
                                 "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
                     }
                 } else {
+                    //TODO: change the logic to make the XOR-Split into a loop responsible for increasing the cycle count.
                     SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
                     String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
@@ -393,6 +442,77 @@ public class RulesGenerator {
 
 
         return sb.toString();
+    }
+
+    private void handleORJoin(StringBuilder sb, FlowNode elem, List<String> predecessors, String inList) {
+        QueryGraph qry;// = buildUnstructuredLoopORJoinCheck(elem.getId(), elem.getName());
+        qry = buildUnstructuredORBlocK(elem.getId(), elem.getName());
+        if (process == null)
+            process = buildBPMNQProcessGraph();
+        MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
+        qp.stopAtFirstMatch = true;
+        qp.allowGenericShapeToEvaluateToNone=true;
+        ProcessGraph result = qp.runQueryAgainstModel(qry, process);
+        if (result.nodes.size() > 0)
+        {
+            // Now lets check the cyclic and non-cyclic input nodes
+            List<String> acyclic, cyclic;
+            acyclic = new ArrayList<>();
+            cyclic = new ArrayList<>();
+            GraphObject orJoin = result.getNodeByID(elem.getId());
+
+            List<GraphObject> preds = result.getPredecessorsFromGraph(orJoin);
+            for (GraphObject obj: preds)
+            {
+                qry = buildQueryToCheckAcyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
+
+                ProcessGraph result2 = qp.runQueryAgainstModel(qry,process);
+                if (result2.nodes.size()> 0)
+                {
+                    acyclic.add(obj.getName());
+                }
+                qry = buildQueryToCheckCyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
+                if (qp.runQueryAgainstModel(qry,process).nodes.size()> 0)
+                {
+                    cyclic.add(obj.getName());
+                }
+
+            }
+            acyclic = acyclic.stream().map(e -> "\"" + e + "\"").collect(Collectors.toList());
+            String acyclicList = acyclic.toString().replace("[", "(").replace("]", ")");
+            sb.append("// OR-join\n" +
+                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum, case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "pred.payLoad, pred.timestamp\n" +
+                    "from ProcessEvent as pred\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum=0 and pred.nodeID in " + acyclicList + "\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + acyclicList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = "+ (acyclic.size()-1) +";\n");
+            cyclic = cyclic.stream().map(e -> "\"" + e + "\"").collect(Collectors.toList());
+            String cyclicList = cyclic.toString().replace("[", "(").replace("]", ")");
+
+            sb.append("// OR-join\n" +
+                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-greater-than-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum, case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "pred.payLoad, pred.timestamp\n" +
+                    "from ProcessEvent as pred\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum>0 and pred.nodeID in " + acyclicList + "\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = "+ (cyclic.size()-1) +";\n");
+        }
+        else {
+            sb.append("// OR-join\n" +
+                    "@Name('OR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID,\"" + elem.getName() + "\", pred.cycleNum, case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "pred.payLoad, pred.timestamp\n" +
+                    "from ProcessEvent as pred\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = " + (predecessors.size() - 1) + ";\n");
+        }
     }
 
     public List<String> getNodeIDs() {

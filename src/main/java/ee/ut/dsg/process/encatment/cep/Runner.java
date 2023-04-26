@@ -182,7 +182,7 @@ public class Runner {
                 });
                 Map<String, Object> variables = new HashMap<>();
                 variables.put("Cond1", Boolean.TRUE);
-                variables.put("Cond2", Boolean.TRUE);
+                variables.put("Cond2", Boolean.FALSE);
                 variables.put("Cond3", Boolean.FALSE);
                 variables.put("Cond4", Boolean.TRUE);
                 for (int i = 1; i <=2; i++) {
