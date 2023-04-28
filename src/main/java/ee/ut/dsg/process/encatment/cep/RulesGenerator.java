@@ -464,66 +464,7 @@ public class RulesGenerator {
 
                     }
 
-//                    QueryGraph qry = buildLoopCheckQueryGraph(elem.getId(), elem.getName());
-//                    if (process == null)
-//                        process = buildBPMNQProcessGraph();
-//                    MemoryQueryProcessor qp = new MemoryQueryProcessor(null);
-//                    qp.stopAtFirstMatch = false;
-//
-//                    ProcessGraph result = qp.runQueryAgainstModel(qry, process);
-//                    if (result.nodes.size() > 0) {
-//                        // there is a loop structure, and we have to have separate rules
-//                        GraphObject match = result.getNodeByID(elem.getId());
-//                        if (match != null) {
-//                            StringBuilder looplessPredecessors = new StringBuilder();
-//                            List<String> loopyPredecessors = new ArrayList<>();
-//                            looplessPredecessors.append("(");
-//                            for (GraphObject node : result.nodes) {
-//                                if (node.getBoundQueryObjectID().equals(looplessEntryNode)) {
-//                                    looplessPredecessors.append("\"").append(node.getName()).append("\"").append(",");
-//                                }
-//                                else //if (node.getBoundQueryObjectID().equals(loopEntryNode))
-//                                {
-//                                    loopyPredecessors.add(node.getID());
-//                                }
-//                            }
-//                            looplessPredecessors.replace(looplessPredecessors.length() - 1, looplessPredecessors.length(), "").append(")");
-//                            sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
-//                                    "//The loopless entry point\n" +
-//                                    "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-//                                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-//                                    " CV.variables, pred.timestamp\n" +
-//                                    "from ProcessEvent (state in (" + COMPLETED + ") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
-//                                    "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
-//
-//                            //Now, let's handle the loop entry point
-//                            //We can find the difference between inList and looplessPredecessors in this section of the code
-//                            for (String predID : loopyPredecessors)
-//                            {
-//                                for (SequenceFlow s : elem.getIncoming())
-//                                {
-//                                    if (s.getSource().getId().equals(predID))
-//                                    {
-//                                        String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
-//                                        sb.append("@Name('XOR-Join-loop-")
-//                                                .append(elem.getName())
-//                                                .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n")
-//                                                .append("select pred.pmID, pred.caseID, \""+elem.getName()+"\", pred.cycleNum+1, pred.state,\n")
-//                                                .append(" CV.variables, pred.timestamp\n")
-//                                                .append("from ProcessEvent (state in (" + COMPLETED + ") , nodeID = \"")
-//                                                .append(s.getSource().getName())
-//                                                .append("\") as pred join Case_Variables as CV\n")
-//                                                .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n")
-//                                                .append("where evaluate(CV.variables, \""+condition+"\")=true;\n");
-//                                    }
-//                                }
-//                            }
-//
-//
-//
-//
-//                        }
-//                    }
+
                     else {
                         //This is a normal Exclusive choice block
                         sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
@@ -532,7 +473,13 @@ public class RulesGenerator {
                                 "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                                 " CV.variables, pred.timestamp\n" +
                                 "from ProcessEvent (state in (" + COMPLETED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
-                                "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
+                                "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where (");
+                        for (SequenceFlow flow: elem.getIncoming())
+                        {
+                            String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
+                            sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
+                        }
+                        sb.append(" false);\n");
                     }
                 } else {
 
