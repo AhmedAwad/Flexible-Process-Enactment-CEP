@@ -12,6 +12,8 @@ This work introduces a revolutionary approach to enacting and orchestrating busi
 
 In particular, this repository showcases implementing BPMN processes using the Esper data stream management system.
 
+You can find more technical details and examples on [these slides](https://docs.google.com/presentation/d/1Fsy-CRxOXGYy1KB5Co-FxJG79Y5bLsNdQhWtQdc5p_4/edit?usp=sharing)
+
 ## Architecture
 
 ![Architecture](https://github.com/AhmedAwad/Flexible-Process-Enactment-CEP/blob/main/src/main/resources/Architecture1.jpg)
