@@ -15,21 +15,19 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 
-public class RulesGenerator {
+public class BPMNRulesGenerator extends RuleGenerator {
 
-    public static final String COMPLETED = "\"completed\"";
-    public static final String STARTED = "\"started\"";
-    public static final String SKIPPED = "\"skipped\"";
+
 
     private final BpmnModelInstance instance;
     private static final String looplessEntryNode = "-1";
     private static final String loopEntryNode = "-XOR-Split";
-    private static final String xorJoin = "-XOR-Join-1";
+//    private static final String xorJoin = "-XOR-Join-1";
 
     private ProcessGraph process;
-    private List<String> loopEntryNodes;
+    private final List<String> loopEntryNodes;
 
-    public RulesGenerator(File file) {
+    public BPMNRulesGenerator(File file) {
         instance = Bpmn.readModelFromFile(file);
         loopEntryNodes = new ArrayList<>();
         preprocess();
@@ -60,14 +58,13 @@ public class RulesGenerator {
 
                            }
                         }
-                        List<String> succNames=  succ.stream().map (e -> e.getName()).collect(Collectors.toList());
+                        List<String> succNames=  succ.stream().map (GraphObject::getName).collect(Collectors.toList());
                         for(GraphObject obj: result.nodes)
                         {
-                            if (obj.getBoundQueryObjectID().equals("-1") && succNames.contains(obj.getName()))
+                            if (obj.getBoundQueryObjectID().equals("-1"))
                                 succNames.remove(obj.getName());
                         }
-                        for (String s: succNames)
-                            loopEntryNodes.add(s);
+                        loopEntryNodes.addAll(succNames);
                     }
                 }
 
@@ -263,59 +260,24 @@ public class RulesGenerator {
             return " + 1";
         return " ";
     }
+    @Override
     public String generateEPLModule() {
         StringBuilder sb = new StringBuilder();
 
         //Create the context and the tracking of events
-        sb.append("//create a context\n" +
-                "create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;\n" +
-                "\n" +
-                "@Audit\n" +
-                "@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp  from ProcessEvent;\n");
+        createContext(sb);
 
 
         //Add the case variables table
-        sb.append("//Create the table that holds case variables\n" +
-                "context partitionedByPmIDAndCaseID create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);\n");
+        createCaseVariables(sb);
 
-        sb.append("@name('track-case-variables') context partitionedByPmIDAndCaseID select  pmID, caseID, variables from Case_Variables;\n");
-        sb.append("context partitionedByPmIDAndCaseID\n" +
-                "create expression boolean js:evaluate(caseVariables, cond) [\n" +
-                "    evaluate(caseVariables, cond);\n" +
-                "    function evaluate(caseVariables, cond){\n" +
-                "        if (cond == \"true\")\n" +
-                "        {\n" +
-                "            return true;\n" +
-                "        }\n" +
-                "        if (cond == \"Cond1\")\n" +
-                "        {\n" +
-                "            return caseVariables.get('Cond1');\n" +
-                "        }\n" +
-                "        if (cond == \"Cond2\")\n" +
-                "        {\n" +
-                "            return caseVariables.get('Cond2');\n" +
-                "        }\n" +
-                "        if (cond == \"Cond3\")\n" +
-                "        {\n" +
-                "            return caseVariables.get('Cond3');\n" +
-                "        }\n" +
-                "        if (cond == \"Cond4\")\n" +
-                "        {\n" +
-                "            return caseVariables.get('Cond4');\n" +
-                "        }\n" +
-                "        return false;\n" +
-                "    }\n" +
-                "];\n");
+
+        createConditionEvaluator(sb);
 
         //Add the named window to track execution history per case
-        sb.append("//History (named window)\n" +
-                "context partitionedByPmIDAndCaseID create window Execution_History.win:keepall as  ProcessEvent;\n");
+        defineExecutionHistoryWindow(sb);
 
-        //Add events to the named window.
-        sb.append("@Priority(10)\n" +
-                "@Name(\"Add-to-named-Window\") context partitionedByPmIDAndCaseID\n" +
-                "insert into Execution_History(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                "select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, event.payLoad, event.timestamp from ProcessEvent as event;\n");
+
 
         for (FlowNode elem : instance.getModelElementsByType(FlowNode.class)) {
             List<String> predecessors = elem.getPreviousNodes().list().stream().map(e -> "\"" + e.getName() + "\"").collect(Collectors.toList());
@@ -378,7 +340,7 @@ public class RulesGenerator {
 
                         updates += " variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
                     }
-                    sb.append(updates.substring(0, updates.length() - 2)).append("\n");
+                    sb.append(updates, 0, updates.length() - 2).append("\n");
                     sb.append("where CV.pmID = a.pmID and CV.caseID = a.caseID;\n");
                 }
             } else if (elem instanceof ParallelGatewayImpl) {
@@ -428,7 +390,6 @@ public class RulesGenerator {
                     if (loopEntryNodes.contains(elem.getName()))
                     {
                         StringBuilder looplessPredecessors = new StringBuilder();
-                        List<String> loopyPredecessors = new ArrayList<>();
                         looplessPredecessors.append("(");
                         for (SequenceFlow flow: elem.getIncoming())
                         {
@@ -506,6 +467,55 @@ public class RulesGenerator {
         return sb.toString();
     }
 
+    private static void defineExecutionHistoryWindow(StringBuilder sb) {
+
+        sb.append("//History (named window)\n" +
+                "context partitionedByPmIDAndCaseID create window Execution_History.win:keepall as  ProcessEvent;\n");
+        //Add events to the named window.
+        sb.append("@Priority(10)\n" +
+                "@Name(\"Add-to-named-Window\") context partitionedByPmIDAndCaseID\n" +
+                "insert into Execution_History(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                "select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, event.payLoad, event.timestamp from ProcessEvent as event;\n");
+
+    }
+
+    private static void createConditionEvaluator(StringBuilder sb) {
+        sb.append("context partitionedByPmIDAndCaseID\n" +
+                "create expression boolean js:evaluate(caseVariables, cond) [\n" +
+                "    evaluate(caseVariables, cond);\n" +
+                "    function evaluate(caseVariables, cond){\n" +
+                "        if (cond == \"true\")\n" +
+                "        {\n" +
+                "            return true;\n" +
+                "        }\n" +
+                "        if (cond == \"Cond1\")\n" +
+                "        {\n" +
+                "            return caseVariables.get('Cond1');\n" +
+                "        }\n" +
+                "        if (cond == \"Cond2\")\n" +
+                "        {\n" +
+                "            return caseVariables.get('Cond2');\n" +
+                "        }\n" +
+                "        if (cond == \"Cond3\")\n" +
+                "        {\n" +
+                "            return caseVariables.get('Cond3');\n" +
+                "        }\n" +
+                "        if (cond == \"Cond4\")\n" +
+                "        {\n" +
+                "            return caseVariables.get('Cond4');\n" +
+                "        }\n" +
+                "        return false;\n" +
+                "    }\n" +
+                "];\n");
+    }
+
+    private void createCaseVariables(StringBuilder sb) {
+        sb.append("//Create the table that holds case variables\n" +
+                "context partitionedByPmIDAndCaseID create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);\n");
+
+        sb.append("@name('track-case-variables') context partitionedByPmIDAndCaseID select  pmID, caseID, variables from Case_Variables;\n");
+    }
+
     private void handleORJoin(StringBuilder sb, FlowNode elem, List<String> predecessors, String inList) {
         QueryGraph qry;// = buildUnstructuredLoopORJoinCheck(elem.getId(), elem.getName());
         qry = buildUnstructuredORBlocK(elem.getId(), elem.getName());
@@ -524,6 +534,7 @@ public class RulesGenerator {
             GraphObject orJoin = result.getNodeByID(elem.getId());
 
             List<GraphObject> preds = result.getPredecessorsFromGraph(orJoin);
+            if (preds.size()> 0)
             for (GraphObject obj: preds)
             {
                 qry = buildQueryToCheckAcyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
@@ -557,10 +568,10 @@ public class RulesGenerator {
             sb.append("// OR-join\n" +
                     "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-greater-than-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
                     "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ", case\n" +
-                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "pred.payLoad, pred.timestamp\n" +
                     "from ProcessEvent as pred\n" +
-                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum>0 and pred.nodeID in " + acyclicList + "\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum>0 and pred.nodeID in " + cyclicList + "\n" +
                     "and (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
                     "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = "+ (cyclic.size()-1) +";\n");
         }

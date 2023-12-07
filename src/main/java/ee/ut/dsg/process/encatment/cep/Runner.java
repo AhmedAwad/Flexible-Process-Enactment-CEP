@@ -20,6 +20,9 @@ import com.espertech.esper.compiler.client.EPCompiler;
 import com.espertech.esper.compiler.client.EPCompilerProvider;
 import com.espertech.esper.runtime.client.*;
 import ee.ut.dsg.process.encatment.cep.events.ProcessEvent;
+import org.xml.sax.SAXException;
+
+import javax.xml.parsers.ParserConfigurationException;
 
 
 public class Runner {
@@ -30,21 +33,22 @@ public class Runner {
 //        System.exit(0);
 //        generateRules();
 //        System.exit(0);
-        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\IrreducibleLoop.bpmn");
-
-
-
+//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\IrreducibleLoop.bpmn");
+//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
+//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop2.bpmn");
+//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
+        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test.xml");
     }
 
     public static void obtainProcessGraph()
     {
         File input;
 
-        input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222.bpmn");
+        input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
 
-        RulesGenerator rulesGenerator = new RulesGenerator(input);
+        BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
 
-        ProcessGraph graph = rulesGenerator.buildBPMNQProcessGraph();
+        ProcessGraph graph = BPMNRulesGenerator.buildBPMNQProcessGraph();
         System.out.println(graph.getActivities().stream().map( e -> e.getName()).collect(Collectors.toList()).toString());
 
     }
@@ -54,19 +58,35 @@ public class Runner {
 
         input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222.bpmn");
 
-        RulesGenerator rulesGenerator = new RulesGenerator(input);
+        BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
 
 //        rulesGenerator.getNodeIDs().forEach( id ->{
 //            System.out.printf("Node ID:%s\n", id);
 //        });
-        System.out.println(rulesGenerator.generateEPLModule());
+        System.out.println(BPMNRulesGenerator.generateEPLModule());
+    }
+
+    private static void enactDCR(String inputDCRXMLFile)
+    {
+        File input = new File(inputDCRXMLFile);
+        try {
+            DCRRuleGenerator dcrRuleGenerator = new DCRRuleGenerator(input);
+            String rules = dcrRuleGenerator.generateEPLModule();
+        } catch (ParserConfigurationException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } catch (SAXException e) {
+            throw new RuntimeException(e);
+        }
+
     }
     private static void enact(String inputBPMNFile) {
 
         File input = new File(inputBPMNFile);
-        RulesGenerator rulesGenerator = new RulesGenerator(input);
+        BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
 
-        String rules = rulesGenerator.generateEPLModule();
+        String rules = BPMNRulesGenerator.generateEPLModule();
         String moduleFileName = inputBPMNFile.substring(0, inputBPMNFile.indexOf(".")) + ".epl";
         try {
             BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
@@ -186,7 +206,7 @@ public class Runner {
                 variables.put("Cond3", Boolean.FALSE);
                 variables.put("Cond4", Boolean.TRUE);
                 for (int i = 1; i <=2; i++) {
-                    ProcessEvent startNewProcessInstance = new ProcessEvent(2, i, "SE-1", 0, "started"
+                    ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE1", 0, "started"
                             , variables, System.currentTimeMillis());
 
                     sender.sendEvent(startNewProcessInstance);
