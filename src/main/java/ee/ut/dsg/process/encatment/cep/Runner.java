@@ -37,7 +37,7 @@ public class Runner {
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop2.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
-        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test.xml");
+        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test2.xml");
     }
 
     public static void obtainProcessGraph()
@@ -70,8 +70,9 @@ public class Runner {
     {
         File input = new File(inputDCRXMLFile);
         try {
-            DCRRuleGenerator dcrRuleGenerator = new DCRRuleGenerator(input);
+            DCRRuleGenerator dcrRuleGenerator = new DCRRuleGenerator(1,1,input);
             String rules = dcrRuleGenerator.generateEPLModule();
+            System.out.println(rules);
         } catch (ParserConfigurationException e) {
             throw new RuntimeException(e);
         } catch (IOException e) {
