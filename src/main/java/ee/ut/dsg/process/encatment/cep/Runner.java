@@ -37,7 +37,8 @@ public class Runner {
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop2.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
-        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test2.xml");
+        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
+//        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test2.xml");
     }
 
     public static void obtainProcessGraph()
@@ -96,6 +97,8 @@ public class Runner {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+
+//        System.exit(0);
 
         EPCompiler compiler = EPCompilerProvider.getCompiler();
 
@@ -169,9 +172,19 @@ public class Runner {
                         handleActivityB(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
 
                     }
+                    else if (nodeID.equals("BB") && state.equals("started"))
+                    {
+                        handleActivityBB(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+
+                    }
                     else if (nodeID.equals("C") && state.equals("started"))
                     {
                         handleActivityC(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+
+                    }
+                    else if (nodeID.equals("CC") && state.equals("started"))
+                    {
+                        handleActivityCC(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
 
                     }
                     else if (nodeID.equals("D") && state.equals("started"))
@@ -185,6 +198,12 @@ public class Runner {
 
                     }
                     else if (nodeID.equals("F") && state.equals("started"))
+                    {
+                        handleActivityF(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+
+                    }
+
+                    else if (nodeID.equals("FF") && state.equals("started"))
                     {
                         handleActivityF(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
 
@@ -206,7 +225,12 @@ public class Runner {
                 variables.put("Cond2", Boolean.FALSE);
                 variables.put("Cond3", Boolean.FALSE);
                 variables.put("Cond4", Boolean.TRUE);
-                for (int i = 1; i <=2; i++) {
+
+                variables.put("Cond11", Boolean.TRUE);
+                variables.put("Cond22", Boolean.FALSE);
+                variables.put("Cond33", Boolean.FALSE);
+                variables.put("Cond44", Boolean.TRUE);
+                for (int i = 1; i <=1; i++) {
                     ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE1", 0, "started"
                             , variables, System.currentTimeMillis());
 
@@ -251,6 +275,10 @@ public class Runner {
             variables.put("Cond2", Boolean.FALSE);
         }
         variables.put("Cond1", Boolean.TRUE);
+        variables.put("Cond2", Boolean.FALSE);
+
+        variables.put("Cond11", Boolean.TRUE);
+        variables.put("Cond22", Boolean.FALSE);
         try {
             Thread.sleep((long) (v*10000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -271,16 +299,50 @@ public class Runner {
         double v =Math.random();
         if ( v < 0.5) {
             variables.put("Cond3", Boolean.TRUE);
+            variables.put("Cond4", Boolean.FALSE);
 
 
         }
         else
         {
             variables.put("Cond3", Boolean.FALSE);
-
+            variables.put("Cond4", Boolean.TRUE);
         }
 
 //        variables.put("Cond3", Boolean.TRUE);
+        try {
+            Thread.sleep((long) (v*1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityBB(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+        Map<String, Object> variables = new HashMap<>();
+
+        for (String k :payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        double v =Math.random();
+        if ( v < 0.5) {
+            variables.put("Cond33", Boolean.TRUE);
+            variables.put("Cond44", Boolean.FALSE);
+
+
+        }
+        else
+        {
+            variables.put("Cond33", Boolean.FALSE);
+            variables.put("Cond44", Boolean.TRUE);
+
+        }
+
+        variables.put("Cond33", Boolean.FALSE);
+        variables.put("Cond44", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -301,13 +363,43 @@ public class Runner {
         double v =Math.random();
         if ( v < 0.5) {
             variables.put("Cond3", Boolean.TRUE);
-
+            variables.put("Cond4", Boolean.FALSE);
 
         }
         else
         {
             variables.put("Cond3", Boolean.FALSE);
+            variables.put("Cond4", Boolean.TRUE);
+        }
 
+//        variables.put("Cond3", Boolean.TRUE);
+        try {
+            Thread.sleep((long) (v*1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityCC(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+        Map<String, Object> variables = new HashMap<>();
+
+        for (String k :payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        double v =Math.random();
+        if ( v < 0.5) {
+            variables.put("Cond33", Boolean.TRUE);
+            variables.put("Cond44", Boolean.FALSE);
+
+        }
+        else
+        {
+            variables.put("Cond33", Boolean.FALSE);
+            variables.put("Cond44", Boolean.TRUE);
         }
 
 //        variables.put("Cond3", Boolean.TRUE);

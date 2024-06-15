@@ -48,7 +48,7 @@ public class DCRRuleGenerator extends RuleGenerator{
 
     private static final String RESPONSE_RULE ="--response(%s,%s)\n"+
             "on ProcessEvent(eventID=\"%s\") as a\n" +
-            "update EventState as ES set restless = false,\n" +
+            "update EventState as ES set restless = true,\n" +
             "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
     private final Document document;
     public DCRRuleGenerator(long pmID, long caseID,File file) throws ParserConfigurationException, IOException, SAXException {
