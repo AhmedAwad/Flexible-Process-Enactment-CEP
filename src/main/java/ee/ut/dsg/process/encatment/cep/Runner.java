@@ -309,7 +309,8 @@ public class Runner {
             variables.put("Cond4", Boolean.TRUE);
         }
 
-//        variables.put("Cond3", Boolean.TRUE);
+        variables.put("Cond3", Boolean.FALSE);
+        variables.put("Cond4", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -372,7 +373,8 @@ public class Runner {
             variables.put("Cond4", Boolean.TRUE);
         }
 
-//        variables.put("Cond3", Boolean.TRUE);
+        variables.put("Cond3", Boolean.FALSE);
+        variables.put("Cond4", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
@@ -402,7 +404,8 @@ public class Runner {
             variables.put("Cond44", Boolean.TRUE);
         }
 
-//        variables.put("Cond3", Boolean.TRUE);
+        variables.put("3Cond3", Boolean.FALSE);
+        variables.put("Cond44", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());

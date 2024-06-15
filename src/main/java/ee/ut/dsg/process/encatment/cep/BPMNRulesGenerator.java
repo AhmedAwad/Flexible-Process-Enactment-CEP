@@ -297,9 +297,10 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 elem.getOutgoing().stream().forEach(new Consumer<SequenceFlow>() {
                     @Override
                     public void accept(SequenceFlow sequenceFlow) {
-                        if (sequenceFlow.getTarget() instanceof ParallelGatewayImpl ) {
-                            if (((ParallelGatewayImpl) sequenceFlow.getTarget()).getGatewayDirection() == GatewayDirection.Converging){
-                                sb.append("// Add to Synchronization events\n" +
+                        if (sequenceFlow.getTarget() instanceof GatewayImpl ) {
+                            if (((GatewayImpl) sequenceFlow.getTarget()).getGatewayDirection() == GatewayDirection.Converging){
+                                sb.append("// Add to Synchronization events - this rule has to be applied before any other competing rule\n" +
+                                        "@Priority(2)\n" +
                                         "@Name('Synchronization-Event-" + elem.getName() + "') context partitionedByPmIDAndCaseID " +
                                         "insert into Synchronization_Events(pmID, caseID, nodeID, state, timestamp)\n" +
                                         "select pred.pmID, pred.caseID, pred.nodeID, pred.state, pred.timestamp\n" +
@@ -310,198 +311,21 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 });
             }
             if (elem instanceof org.camunda.bpm.model.bpmn.impl.instance.StartEventImpl) {
-                sb.append("// Start event -- this shall be injected from outside\n" +
-                        "@Name('Start-Event-"+elem.getName()+"') context partitionedByPmIDAndCaseID " +
-                        "insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\",0," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
-                        "from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as pred;\n" +
-                        "//Inititate case variables as a response to the start event\n" +
-                        "@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID\n" +
-                        "insert into Case_Variables (pmID, caseID, variables )\n" +
-                        "select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as st;\n");
+                handleStartEvents(sb, elem);
             } else if (elem instanceof EndEventImpl) {
 
                 SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
                 String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
-                //Generate a skipped or completed event based on the predecessor
-                sb.append("// End event\n" +
-                        "@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
-                        "case when pred.state=" + COMPLETED + "  and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                        "CV.variables, pred.timestamp\n" +
-                        "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                        "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
-//                        "and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and\n" +
-//                        "H.nodeID = \"" + elem.getName() + "\" and H.state =\"completed\");\n");
-
-                sb.append("@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+ "\", state=" + COMPLETED + ") as a\n" +
-                        "delete from Execution_History as H\n" +
-                        "where H.pmID = a.pmID and H.caseID = a.caseID\n" +
-                        "and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and\n" +
-                        "H.nodeID = \"" + elem.getName() + "\" and H.state =" + COMPLETED + ");\n");
+                handleEndEvents(sb, elem, inList, condition);
             } else if (elem instanceof TaskImpl) {
-                SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
-                String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
-
-                sb.append("// Activity " + elem.getName() + "\n" +
-                        "// Template to handle activity nodes that have a single predecessor\n" +
-                        "@Name('Activity-" + elem.getName() + "-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
-                        "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + STARTED + " else " + SKIPPED + " end,\n" +
-                        "CV.variables, pred.timestamp\n" +
-                        "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                        "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
-
-
-                if (((TaskImpl) elem).getIoSpecification() != null &&
-                        ((TaskImpl) elem).getIoSpecification().getDataOutputs() != null &&
-                        ((TaskImpl) elem).getIoSpecification().getDataOutputs().size() > 0) {
-
-                    sb.append("//Update case variable on the completion of activity " + elem.getName() + "\n" +
-                            "context partitionedByPmIDAndCaseID \n" +
-                            "on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + COMPLETED + ") as a\n" +
-                            "update Case_Variables as CV set");
-                    String updates = "";
-                    for (DataOutput doa : ((TaskImpl) elem).getIoSpecification().getDataOutputs()) {
-
-                        updates += " variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
-                    }
-                    sb.append(updates, 0, updates.length() - 2).append("\n");
-                    sb.append("where CV.pmID = a.pmID and CV.caseID = a.caseID;\n");
-                }
+                handleTasks(sb, elem, inList);
             } else if (elem instanceof ParallelGatewayImpl) {
-                if (((ParallelGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
-                    for (SequenceFlow in : elem.getIncoming()) { // outer loop
-                        FlowNode elem2 = in.getSource();
-                        for (SequenceFlow in2 : elem.getIncoming()) {
-                            FlowNode elem3 = in2.getSource();
-                            if (elem3.getId().equals(elem2.getId())) //we look for different nodes
-                                continue;
-                            //Started case
-                            sb.append("// AND-join\n" +
-                                    "@Priority(5)\n" +
-                                    "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
-                                    "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + COMPLETED + ") as pred\n" +
-                                    "where \n" +
-                                    "(select count (*) from Synchronization_Events as H where H.nodeID = \"" + elem3.getName() + "\" and H.caseID = pred.caseID\n" +
-                                    "and H.state = pred.state and H.pmID = pred.pmID) =1 ;\n");
-                            sb.append("// AND-join\n" +
-                                    "@Priority(5)\n" +
-                                    "@Name('AND-Join-" + elem2.getName() + "-skipped') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
-                                    "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + SKIPPED + ") as pred\n" +
-                                    "where \n" +
-                                    "(select count (*) from Synchronization_Events as H where H.nodeID = \"" + elem3.getName() + "\" and H.caseID = pred.caseID\n" +
-                                    "and H.state = pred.state and H.pmID = pred.pmID) =1 ;\n");
-                        }
-                    }
-
-
-                } else {
-                    SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
-                    String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
-
-                    sb.append("// AND Split " + elem.getName() + "\n" +
-                            "// Template to handle activity nodes that have a single predecessor\n" +
-                            "@Name('AND-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                            "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
-                            "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                            "CV.variables, pred.timestamp\n" +
-                            "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                            "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
-                }
+                handleParallelGatewys(sb, elem, inList);
             } else if (elem instanceof InclusiveGatewayImpl) {
-                if (((InclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
-                    // We need to check if the OR join is part of an unstructured loop, where some branches are decided and others are from the looping entry
-                    handleORJoin(sb, elem, predecessors, inList);
-
-                } else {
-                    SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
-                    String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
-
-                    sb.append("// OR Split " + elem.getName() + "\n" +
-                            "// Template to handle activity nodes that have a single predecessor\n" +
-                            "@Name('OR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                            "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
-                            "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                            "CV.variables, pred.timestamp\n" +
-                            "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                            "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
-                }
+                handleInclusiveGateways(sb, elem, predecessors, inList);
             } else if (elem instanceof ExclusiveGatewayImpl) {
-                if (((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
-                    //We need to check if there is a loop
-                    if (loopEntryNodes.contains(elem.getName()))
-                    {
-                        StringBuilder looplessPredecessors = new StringBuilder();
-                        looplessPredecessors.append("(");
-                        for (SequenceFlow flow: elem.getIncoming())
-                        {
-                            if (! (flow.getSource() instanceof ExclusiveGatewayImpl))
-                            {
-                                looplessPredecessors.append("\"").append(flow.getSource().getName()).append("\"").append(",");
-                            }
-                            else
-                            {
-                                String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
-                                sb.append("@Name('XOR-Join-loop-")
-                                        .append(elem.getName())
-                                        .append("-input-")
-                                        .append(flow.getSource().getName())
-                                        .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n")
-                                        .append("select pred.pmID, pred.caseID, \""+elem.getName()+"\", pred.cycleNum+1, pred.state,\n")
-                                        .append(" CV.variables, pred.timestamp\n")
-                                        .append("from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID = \"")
-                                        .append(flow.getSource().getName())
-                                        .append("\") as pred join Case_Variables as CV\n")
-                                        .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n")
-                                        .append("where evaluate(CV.variables, \""+condition+"\")=true;\n");
-                            }
-                        }
-                        looplessPredecessors.replace(looplessPredecessors.length() - 1, looplessPredecessors.length(), "").append(")");
-                        sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
-                                "//The loopless entry point\n" +
-                                "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                                " CV.variables, pred.timestamp\n" +
-                                "from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
-                                "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
-
-                    }
-
-
-                    else {
-                        //This is a normal Exclusive choice block
-                        sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
-                                "//The loopless entry point\n" +
-                                "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                                " CV.variables, pred.timestamp\n" +
-                                "from ProcessEvent (state in (" + COMPLETED + ","+ SKIPPED+"), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
-                                "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where (");
-                        for (SequenceFlow flow: elem.getIncoming())
-                        {
-                            String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
-                            sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
-                        }
-                        sb.append(" false);\n");
-                    }
-                } else {
-
-                    SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
-                    String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
-
-                    sb.append("// XOR Split " + elem.getName() + "\n" +
-                            "// Template to handle activity nodes that have a single predecessor\n" +
-                            "@Name('XOR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                            "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
-                            "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
-                            "CV.variables, pred.timestamp\n" +
-                            "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                            "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
-                }
+                handleExclusiveGateways(sb, elem, inList);
             }
             else if (elem instanceof EventBasedGatewayImpl )
             {
@@ -511,6 +335,247 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
 
         return sb.toString();
+    }
+
+    private void handleExclusiveGateways(StringBuilder sb, FlowNode elem, String inList) {
+        if (((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
+
+            sb.append("//XOR-join input events consumption \n@Priority(2) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\") as aJoin \n" +
+                    "delete from Synchronization_Events as ST where ST.nodeID in "+inList+" and ST.caseID = aJoin.caseID;\n\n");
+            //We need to check if there is a loop
+            if (loopEntryNodes.contains(elem.getName()))
+            {
+                StringBuilder looplessPredecessors = new StringBuilder();
+                looplessPredecessors.append("(");
+                for (SequenceFlow flow: elem.getIncoming())
+                {
+                    if (! (flow.getSource() instanceof ExclusiveGatewayImpl))
+                    {
+                        looplessPredecessors.append("\"").append(flow.getSource().getName()).append("\"").append(",");
+                    }
+                    else
+                    {
+                        String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
+                        sb.append("@Name('XOR-Join-loop-")
+                                .append(elem.getName())
+                                .append("-input-")
+                                .append(flow.getSource().getName())
+                                .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n")
+                                .append("select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum+1, pred.state,\n")
+                                .append(" CV.variables, pred.timestamp\n")
+                                // I am touching the below condition and changing it to filter on completed only as skipped should not trigger cycles
+//                                .append("from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID = \"")
+                                .append("from ProcessEvent (state in (" + COMPLETED +") , nodeID = \"")
+                                .append(flow.getSource().getName())
+                                .append("\") as pred join Case_Variables as CV\n")
+                                .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n")
+                                .append("where evaluate(CV.variables, \""+condition+"\")=true;\n");
+                    }
+                }
+                looplessPredecessors.replace(looplessPredecessors.length() - 1, looplessPredecessors.length(), "").append(")");
+                sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
+                        "// The loopless entry point\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                        " CV.variables, pred.timestamp\n" +
+                        "from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
+                        "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
+
+            }
+
+
+            else {
+                //This is a normal Exclusive choice block
+                sb.append("//XOR-Join in in an acyclic block\n" +
+                        "//The loopless entry point\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum," + COMPLETED + " ,\n" +
+                        " CV.variables, pred.timestamp\n" +
+                        "from ProcessEvent (state in (" + COMPLETED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
+                        "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  exists (select 1 from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ COMPLETED+" ) and (");
+
+                for (SequenceFlow flow: elem.getIncoming())
+                {
+                    String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
+                    sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
+                }
+                sb.append(" false);\n");
+
+                sb.append("//XOR-Join in in an acyclic block\n" +
+                        "//The loopless entry point\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum," + SKIPPED + " ,\n" +
+                        " CV.variables, pred.timestamp\n" +
+                        "from ProcessEvent (state in (" + SKIPPED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
+                        "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  (select count(1) from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ SKIPPED+") ="+inList.split(",").length+"  and (");
+                for (SequenceFlow flow: elem.getIncoming())
+                {
+                    String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
+                    sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
+                }
+                sb.append(" false);\n");
+            }
+        } else {
+
+            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
+            sb.append("// XOR Split " + elem.getName() + "\n" +
+                    "// Template to handle activity nodes that have a single predecessor\n" +
+                    "@Name('XOR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
+                    "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "CV.variables, pred.timestamp\n" +
+                    "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+        }
+    }
+
+    private void handleInclusiveGateways(StringBuilder sb, FlowNode elem, List<String> predecessors, String inList) {
+        if (((InclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
+            // We need to check if the OR join is part of an unstructured loop, where some branches are decided and others are from the looping entry
+            handleORJoin(sb, elem, predecessors, inList);
+
+        } else {
+            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
+            sb.append("// OR Split " + elem.getName() + "\n" +
+                    "// Template to handle activity nodes that have a single predecessor\n" +
+                    "@Name('OR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                    "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "CV.variables, pred.timestamp\n" +
+                    "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+        }
+    }
+
+    private void handleParallelGatewys(StringBuilder sb, FlowNode elem, String inList) {
+        if (((ParallelGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
+
+            for (SequenceFlow in : elem.getIncoming()) { // outer loop
+                FlowNode elem2 = in.getSource();
+                StringBuilder parallelJoinFiringEventConsumer = new StringBuilder();
+
+                parallelJoinFiringEventConsumer.append("//AND-join input events consumption-when completed \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\", state="+COMPLETED+ ") as aJoin \n" +
+                                "delete from Synchronization_Events as ST where ST.nodeID =\""+elem2.getName()+"\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
+                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n");
+
+                parallelJoinFiringEventConsumer.append("//AND-join input events consumption-when skipped \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\", state="+SKIPPED+ ") as aJoin \n" +
+                        "delete from Synchronization_Events as ST where ST.nodeID =\""+elem2.getName()+"\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
+                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n");
+
+                StringBuilder completed = new StringBuilder("// AND-join\n" +
+                        "@Priority(5)\n" +
+                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
+                        "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + COMPLETED + ") as pred\n" +
+                        "where 1=1 \n ");
+
+                StringBuilder skipped = new StringBuilder("// AND-join\n" +
+                        "@Priority(5)\n" +
+                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
+                        "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + SKIPPED + ") as pred\n" +
+                        "where 1=1 \n ");
+
+                for (SequenceFlow in2 : elem.getIncoming()) {
+                    FlowNode elem3 = in2.getSource();
+                    if (elem3.getId().equals(elem2.getId())) //we look for different nodes
+                        continue;
+                    //Started case
+                    completed.append( " and (select count (*) from Synchronization_Events as H where H.nodeID = \"" + elem3.getName() + "\" and H.caseID = pred.caseID\n" +
+                            "and H.state = pred.state and H.pmID = pred.pmID) >=1 \n");
+                    skipped.append( " and (select count (*) from Synchronization_Events as H where H.nodeID = \"" + elem3.getName() + "\" and H.caseID = pred.caseID\n" +
+                            "and H.state = pred.state and H.pmID = pred.pmID) >=1 \n");
+
+
+                }
+                completed.append(";");
+                skipped.append(";");
+                sb.append(parallelJoinFiringEventConsumer);
+                sb.append(completed);
+                sb.append(skipped);
+            }
+
+
+        } else {
+            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
+            sb.append("// AND Split " + elem.getName() + "\n" +
+                    "// Template to handle activity nodes that have a single predecessor\n" +
+                    "@Name('AND-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                    "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "CV.variables, pred.timestamp\n" +
+                    "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+        }
+    }
+
+    private void handleTasks(StringBuilder sb, FlowNode elem, String inList) {
+        SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
+        String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
+        sb.append("// Activity " + elem.getName() + "\n" +
+                "// Template to handle activity nodes that have a single predecessor\n" +
+                "@Name('Activity-" + elem.getName() + "-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + STARTED + " else " + SKIPPED + " end,\n" +
+                "CV.variables, pred.timestamp\n" +
+                "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+
+
+        if (((TaskImpl) elem).getIoSpecification() != null &&
+                ((TaskImpl) elem).getIoSpecification().getDataOutputs() != null &&
+                ((TaskImpl) elem).getIoSpecification().getDataOutputs().size() > 0) {
+
+            sb.append("//Update case variable on the completion of activity " + elem.getName() + "\n" +
+                    "context partitionedByPmIDAndCaseID \n" +
+                    "on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + COMPLETED + ") as a\n" +
+                    "update Case_Variables as CV set");
+            String updates = "";
+            for (DataOutput doa : ((TaskImpl) elem).getIoSpecification().getDataOutputs()) {
+
+                updates += " variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
+            }
+            sb.append(updates, 0, updates.length() - 2).append("\n");
+            sb.append("where CV.pmID = a.pmID and CV.caseID = a.caseID;\n");
+        }
+    }
+
+    private static void handleEndEvents(StringBuilder sb, FlowNode elem, String inList, String condition) {
+        //Generate a skipped or completed event based on the predecessor
+        sb.append("// End event\n" +
+                "@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
+                "case when pred.state=" + COMPLETED + "  and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                "CV.variables, pred.timestamp\n" +
+                "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+//                        "and not exists (select 1 from Execution_History as H where H.pmID = pred.pmID and H.caseID = pred.caseID and\n" +
+//                        "H.nodeID = \"" + elem.getName() + "\" and H.state =\"completed\");\n");
+
+        sb.append("@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+ elem.getName()+ "\", state=" + COMPLETED + ") as a\n" +
+                "delete from Execution_History as H\n" +
+                "where H.pmID = a.pmID and H.caseID = a.caseID\n" +
+                "and not exists (select 1 from Execution_History as H where H.pmID = a.pmID and H.caseID = a.caseID and\n" +
+                "H.nodeID = \"" + elem.getName() + "\" and H.state =" + COMPLETED + ");\n");
+    }
+
+    private static void handleStartEvents(StringBuilder sb, FlowNode elem) {
+        sb.append("// Start event -- this shall be injected from outside\n" +
+                "@Name('Start-Event-"+ elem.getName()+"') context partitionedByPmIDAndCaseID " +
+                "insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\",0," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
+                "from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as pred;\n" +
+                "//Inititate case variables as a response to the start event\n" +
+                "@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID\n" +
+                "insert into Case_Variables (pmID, caseID, variables )\n" +
+                "select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as st;\n");
     }
 
     private static void defineExecutionHistoryWindow(StringBuilder sb) {
