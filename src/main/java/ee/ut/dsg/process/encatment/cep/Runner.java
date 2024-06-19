@@ -151,61 +151,61 @@ public class Runner {
                     //      double x = (double) newData[0].get("x");
                     int caseID = (int) newData[last].get("caseID");
                     String nodeID = (String) newData[last].get("nodeID");
-                    int cycleNum = (int) newData[last].get("cycleNum");
+//                    int cycleNum = (int) newData[last].get("cycleNum");
                     String state = (String) newData[last].get("state");
                     Map<String, Object> payLoad = (Map<String, Object>) newData[last].get("payLoad");
                     long time = (long) newData[last].get("timestamp");
 //                    System.out.printf("A new process event received with Process Model ID:%d," +
 //                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
 //                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-                    System.out.printf("%d,%d,%s, %d, %s, %s, %d\n",
-                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString().replace(",",";"), time);
+                    System.out.printf("%d,%d,%s, %s, %s, %d\n",
+                            pmID, caseID, nodeID,state,payLoad.toString().replace(",",";"), time);
 
 //                    Handler for Activities
                     if (nodeID.equals("A") && state.equals("started"))
                     {
-                        handleActivityA(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityA(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("B") && state.equals("started"))
                     {
-                        handleActivityB(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityB(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("BB") && state.equals("started"))
                     {
-                        handleActivityBB(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityBB(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("C") && state.equals("started"))
                     {
-                        handleActivityC(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityC(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("CC") && state.equals("started"))
                     {
-                        handleActivityCC(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityCC(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("D") && state.equals("started"))
                     {
-                        handleActivityD(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityD(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("E") && state.equals("started"))
                     {
-                        handleActivityE(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityE(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                     else if (nodeID.equals("F") && state.equals("started"))
                     {
-                        handleActivityF(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
 
                     else if (nodeID.equals("FF") && state.equals("started"))
                     {
-                        handleActivityF(eventService, pmID, caseID, nodeID, cycleNum, payLoad);
+                        handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
                     }
                 });
@@ -231,7 +231,7 @@ public class Runner {
                 variables.put("Cond33", Boolean.FALSE);
                 variables.put("Cond44", Boolean.TRUE);
                 for (int i = 1; i <=1; i++) {
-                    ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE1", 0, "started"
+                    ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE1", /*0,*/ "started"
                             , variables, System.currentTimeMillis());
 
                     sender.sendEvent(startNewProcessInstance);
@@ -246,7 +246,7 @@ public class Runner {
 //        }
     }
 
-    private static void handleActivityA(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityA(EPEventService sender, int pmID, int caseID, String nodeID,/* int cycleNum,*/ Map<String, Object> payLoad) {
 
         Map<String, Object> variables = new HashMap<>();
 
@@ -281,7 +281,7 @@ public class Runner {
         variables.put("Cond22", Boolean.FALSE);
         try {
             Thread.sleep((long) (v*10000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -291,7 +291,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityB(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityB(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -309,11 +309,11 @@ public class Runner {
             variables.put("Cond4", Boolean.TRUE);
         }
 
-        variables.put("Cond3", Boolean.FALSE);
-        variables.put("Cond4", Boolean.TRUE);
+//        variables.put("Cond3", Boolean.FALSE);
+//        variables.put("Cond4", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -323,7 +323,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityBB(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityBB(EPEventService sender, int pmID, int caseID, String nodeID,  Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -346,7 +346,7 @@ public class Runner {
         variables.put("Cond44", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -356,7 +356,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityC(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -377,7 +377,7 @@ public class Runner {
         variables.put("Cond4", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -387,7 +387,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityCC(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityCC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -408,7 +408,7 @@ public class Runner {
         variables.put("Cond44", Boolean.TRUE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -418,7 +418,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityD(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityD(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -438,7 +438,7 @@ public class Runner {
 //        variables.put("cond3", Boolean.FALSE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -448,7 +448,7 @@ public class Runner {
 
     }
 
-    private static void handleActivityE(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityE(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
         for (String k :payLoad.keySet())
@@ -468,7 +468,7 @@ public class Runner {
 //        variables.put("cond3", Boolean.FALSE);
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",variables,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -478,13 +478,13 @@ public class Runner {
 
     }
 
-    private static void handleActivityF(EPEventService sender, int pmID, int caseID, String nodeID, int cycleNum, Map<String, Object> payLoad) {
+    private static void handleActivityF(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
 
         double v =Math.random();
 
         try {
             Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, cycleNum,"completed",payLoad,System.currentTimeMillis());
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",payLoad,System.currentTimeMillis());
             sender.sendEventBean(activityACompleted,"ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {

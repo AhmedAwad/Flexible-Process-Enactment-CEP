@@ -360,8 +360,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
                                 .append(elem.getName())
                                 .append("-input-")
                                 .append(flow.getSource().getName())
-                                .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n")
-                                .append("select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum+1, pred.state,\n")
+                                .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n")
+                                .append("select pred.pmID, pred.caseID, \""+ elem.getName()+"\",  pred.state,\n")
                                 .append(" CV.variables, pred.timestamp\n")
                                 // I am touching the below condition and changing it to filter on completed only as skipped should not trigger cycles
 //                                .append("from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID = \"")
@@ -375,8 +375,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 looplessPredecessors.replace(looplessPredecessors.length() - 1, looplessPredecessors.length(), "").append(")");
                 sb.append("// XOR-join, when one of the inputs is forming a loop\n" +
                         "// The loopless entry point\n" +
-                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum, case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\",  case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                         " CV.variables, pred.timestamp\n" +
                         "from ProcessEvent (state in (" + COMPLETED + "," + SKIPPED+") , nodeID in " + looplessPredecessors + ") as pred join Case_Variables as CV\n" +
                         "on pred.pmID = CV.pmID and pred.caseID = CV.caseID;\n");
@@ -388,8 +388,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 //This is a normal Exclusive choice block
                 sb.append("//XOR-Join in in an acyclic block\n" +
                         "//The loopless entry point\n" +
-                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum," + COMPLETED + " ,\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", " + COMPLETED + " ,\n" +
                         " CV.variables, pred.timestamp\n" +
                         "from ProcessEvent (state in (" + COMPLETED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
                         "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  exists (select 1 from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ COMPLETED+" ) and (");
@@ -403,8 +403,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
                 sb.append("//XOR-Join in in an acyclic block\n" +
                         "//The loopless entry point\n" +
-                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum," + SKIPPED + " ,\n" +
+                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", " + SKIPPED + " ,\n" +
                         " CV.variables, pred.timestamp\n" +
                         "from ProcessEvent (state in (" + SKIPPED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
                         "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  (select count(1) from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ SKIPPED+") ="+inList.split(",").length+"  and (");
@@ -422,8 +422,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
             sb.append("// XOR Split " + elem.getName() + "\n" +
                     "// Template to handle activity nodes that have a single predecessor\n" +
-                    "@Name('XOR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
+                    "@Name('XOR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
                     "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "CV.variables, pred.timestamp\n" +
                     "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
@@ -442,8 +442,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
             sb.append("// OR Split " + elem.getName() + "\n" +
                     "// Template to handle activity nodes that have a single predecessor\n" +
-                    "@Name('OR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                    "@Name('OR-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
                     "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "CV.variables, pred.timestamp\n" +
                     "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
@@ -468,15 +468,15 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
                 StringBuilder completed = new StringBuilder("// AND-join\n" +
                         "@Priority(5)\n" +
-                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
+                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
                         "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + COMPLETED + ") as pred\n" +
                         "where 1=1 \n ");
 
                 StringBuilder skipped = new StringBuilder("// AND-join\n" +
                         "@Priority(5)\n" +
-                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum" + handleLoopEntry(elem.getName()) + ", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
+                        "@Name('AND-Join-" + elem2.getName() + "-started') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", case pred.state when " + COMPLETED + " then " + COMPLETED + " else " + SKIPPED + " end,pred.payLoad, pred.timestamp\n" +
                         "from ProcessEvent(nodeID=\"" + elem2.getName() + "\", state =" + SKIPPED + ") as pred\n" +
                         "where 1=1 \n ");
 
@@ -506,8 +506,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
             sb.append("// AND Split " + elem.getName() + "\n" +
                     "// Template to handle activity nodes that have a single predecessor\n" +
-                    "@Name('AND-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                    "@Name('AND-Split-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n" +
+                    "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
                     "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "CV.variables, pred.timestamp\n" +
                     "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
@@ -521,8 +521,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
         sb.append("// Activity " + elem.getName() + "\n" +
                 "// Template to handle activity nodes that have a single predecessor\n" +
-                "@Name('Activity-" + elem.getName() + "-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, Time_stamp)\n" +
-                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ",\n" +
+                "@Name('Activity-" + elem.getName() + "-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
                 "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + STARTED + " else " + SKIPPED + " end,\n" +
                 "CV.variables, pred.timestamp\n" +
                 "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
@@ -534,7 +534,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 ((TaskImpl) elem).getIoSpecification().getDataOutputs().size() > 0) {
 
             sb.append("//Update case variable on the completion of activity " + elem.getName() + "\n" +
-                    "context partitionedByPmIDAndCaseID \n" +
+                    "@Priority(2) context partitionedByPmIDAndCaseID \n" +
                     "on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + COMPLETED + ") as a\n" +
                     "update Case_Variables as CV set");
             String updates = "";
@@ -550,8 +550,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
     private static void handleEndEvents(StringBuilder sb, FlowNode elem, String inList, String condition) {
         //Generate a skipped or completed event based on the predecessor
         sb.append("// End event\n" +
-                "@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", pred.cycleNum,\n" +
+                "@Priority(200) @Name('End-Event') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
                 "case when pred.state=" + COMPLETED + "  and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                 "CV.variables, pred.timestamp\n" +
                 "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
@@ -569,8 +569,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
     private static void handleStartEvents(StringBuilder sb, FlowNode elem) {
         sb.append("// Start event -- this shall be injected from outside\n" +
                 "@Name('Start-Event-"+ elem.getName()+"') context partitionedByPmIDAndCaseID " +
-                "insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\",0," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
+                "insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\"," + COMPLETED + ", pred.payLoad, pred.timestamp\n" +
                 "from ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + STARTED + ") as pred;\n" +
                 "//Inititate case variables as a response to the start event\n" +
                 "@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID\n" +
@@ -585,8 +585,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
         //Add events to the named window.
         sb.append("@Priority(10)\n" +
                 "@Name(\"Add-to-named-Window\") context partitionedByPmIDAndCaseID\n" +
-                "insert into Execution_History(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                "select event.pmID, event.caseID, event.nodeID, event.cycleNum, event.state, event.payLoad, event.timestamp from ProcessEvent as event;\n");
+                "insert into Execution_History(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                "select event.pmID, event.caseID, event.nodeID,  event.state, event.payLoad, event.timestamp from ProcessEvent as event;\n");
 
     }
 
@@ -666,36 +666,36 @@ public class BPMNRulesGenerator extends RuleGenerator {
             acyclic = acyclic.stream().map(e -> "\"" + e + "\"").collect(Collectors.toList());
             String acyclicList = acyclic.toString().replace("[", "(").replace("]", ")");
             sb.append("// OR-join\n" +
-                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ", case\n" +
-                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "pred.payLoad, pred.timestamp\n" +
                     "from ProcessEvent as pred\n" +
-                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum=0 and pred.nodeID in " + acyclicList + "\n" +
-                    "and (select count(1) from Execution_History as H where H.nodeID in " + acyclicList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + acyclicList + "\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + acyclicList + " and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
                     "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = "+ (acyclic.size()-1) +";\n");
             cyclic = cyclic.stream().map(e -> "\"" + e + "\"").collect(Collectors.toList());
             String cyclicList = cyclic.toString().replace("[", "(").replace("]", ")");
 
             sb.append("// OR-join\n" +
-                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-greater-than-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ", case\n" +
-                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "@Name('OR-Join-unstructured-loop-"+ elem.getName()+"-cycle-greater-than-ZERO') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID, \""+ elem.getName()+"\", case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "pred.payLoad, pred.timestamp\n" +
                     "from ProcessEvent as pred\n" +
-                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.cycleNum>0 and pred.nodeID in " + cyclicList + "\n" +
-                    "and (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + cyclicList + "\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + cyclicList + " and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
                     "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = "+ (cyclic.size()-1) +";\n");
         }
         else {
             sb.append("// OR-join\n" +
-                    "@Name('OR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID, cycleNum, state, payLoad, timestamp)\n" +
-                    "select pred.pmID, pred.caseID,\"" + elem.getName() + "\", pred.cycleNum"+  handleLoopEntry(elem.getName())+ ", case\n" +
-                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
+                    "@Name('OR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
+                    "select pred.pmID, pred.caseID,\"" + elem.getName() + "\", case\n" +
+                    "when (pred.state=" + COMPLETED + " or (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.state=" + COMPLETED + ") >=1) then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "pred.payLoad, pred.timestamp\n" +
                     "from ProcessEvent as pred\n" +
                     "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "\n" +
-                    "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.cycleNum = pred.cycleNum and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
+                    "and (select count(1) from Execution_History as H where H.nodeID in " + inList + " and H.pmID = pred.pmID and H.caseID= pred.caseID\n" +
                     "and H.state in (" + COMPLETED + ", " + SKIPPED + ")) = " + (predecessors.size() - 1) + ";\n");
         }
     }

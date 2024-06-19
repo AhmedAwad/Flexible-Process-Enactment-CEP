@@ -6,16 +6,16 @@ public class ProcessEvent {
     private int pmID;
     private int caseID;
     private String nodeID;
-    private int cycleNum;
+//    private int cycleNum;
     private String state;
     private Map<String, Object> payLoad;
     private long timestamp;
 
-    public ProcessEvent(int PM_ID, int caseID, String node_ID, int CYCLE_NUM, String state, Map<String, Object> pay_Load, long timestamp) {
+    public ProcessEvent(int PM_ID, int caseID, String node_ID, /*int CYCLE_NUM,*/ String state, Map<String, Object> pay_Load, long timestamp) {
         this.pmID = PM_ID;
         this.caseID = caseID;
         nodeID = node_ID;
-        this.cycleNum = CYCLE_NUM;
+//        this.cycleNum = CYCLE_NUM;
         this.state = state;
         payLoad = pay_Load;
         this.timestamp = timestamp;
@@ -33,9 +33,9 @@ public class ProcessEvent {
         return nodeID;
     }
 
-    public int getCycleNum() {
-        return cycleNum;
-    }
+//    public int getCycleNum() {
+//        return cycleNum;
+//    }
 
     public String getState() {
         return state;
