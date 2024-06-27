@@ -23,30 +23,36 @@ public class DCRRuleGenerator extends RuleGenerator{
     private static final String DEFINE_CONTEXT ="create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;\n";
 
 
+
+
     private static final String EVENT_STATE_TABLE ="context partitionedByPmIDAndCaseID\n"+
-    "create table EventState (ProcessModelID long primary key, caseID long primary key,\n"+
+    "create table EventState (ProcessModelID int primary key, caseID int primary key,\n"+
                              "eventID string primary key, happened boolean, included boolean, restless boolean);\n";
 
+    private static  final String DEFINE_TRACK_EVENTS ="@name('track-dcr-event') context partitionedByPmIDAndCaseID \n" +
+            "on ProcessEvent as a\n" +
+            "select ProcessModelID, caseID, eventID from EventState as ES\n" +
+            "where included=true;\n";
     private static final String INITIAL_EVENT_STATE = "insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)\n" +
             "select %d,%d,\"%s\",%s,%s,%s;\n";
 
 
-    private static final String UPDATE_EVENT_STATE ="-- Update an activity to be happened (executed) and no longer required (restless=false)\n" +
+    private static final String UPDATE_EVENT_STATE ="// Update an activity to be happened (executed) and no longer required (restless=false)\n" +
             "on ProcessEvent as a\n" +
             "update EventState as ES set restless = false, happened=true\n" +
             "where ES.included = true and ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.eventID;\n";
 
-    private static final String EXCLUDE_RULE ="-- exclude(%s, %s)\n" +
+    private static final String EXCLUDE_RULE ="// exclude(%s, %s)\n" +
             "on ProcessEvent(eventID=\"%s\") as a\n" +
             "update EventState as ES set included = false\n" +
             "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
 
-    private static final String INCLUDE_RULE ="-- include(%s, %s)\n" +
+    private static final String INCLUDE_RULE ="// include(%s, %s)\n" +
             "on ProcessEvent(eventID=\"%s\") as a\n" +
             "update EventState as ES set included = true\n" +
             "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
 
-    private static final String RESPONSE_RULE ="--response(%s,%s)\n"+
+    private static final String RESPONSE_RULE ="// response(%s,%s)\n"+
             "on ProcessEvent(eventID=\"%s\") as a\n" +
             "update EventState as ES set restless = true,\n" +
             "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
@@ -71,6 +77,7 @@ public class DCRRuleGenerator extends RuleGenerator{
         {
             StringBuilder result = new StringBuilder(DEFINE_CONTEXT);
             result.append(EVENT_STATE_TABLE);
+            result.append(DEFINE_TRACK_EVENTS);
             result.append(UPDATE_EVENT_STATE);
             for (Iterator<Event> it = graph.getNodes(); it.hasNext(); ) {
                 Event e = it.next();
@@ -79,7 +86,7 @@ public class DCRRuleGenerator extends RuleGenerator{
                 Set<Event> preConditions = graph.getPreConditionNodes(e);
                 if (!preConditions.isEmpty())
                 {
-                    StringBuilder  preConditionRule = new StringBuilder(String.format("-- precondition rule\non ProcessEvent(eventID=\"%s\") as a\n" +
+                    StringBuilder  preConditionRule = new StringBuilder(String.format("// precondition rule\non ProcessEvent(eventID=\"%s\") as a\n" +
                             "update EventState as ES set restless = false, happened=true,\n" +
                             "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n",e.getName(),e.getName()));
 

@@ -7,12 +7,12 @@ import org.camunda.bpm.model.bpmn.GatewayDirection;
 import org.camunda.bpm.model.bpmn.impl.instance.*;
 import org.camunda.bpm.model.bpmn.instance.*;
 import org.camunda.bpm.model.bpmn.instance.SequenceFlow;
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 
@@ -80,6 +80,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
         }
     }
 
+    @Deprecated
     private static QueryGraph buildUnstructuredLoopORJoinCheck(String orJoinID, String orJoinName)
     {
         QueryGraph result = new QueryGraph();
@@ -294,19 +295,11 @@ public class BPMNRulesGenerator extends RuleGenerator {
             //Check if the successor is a synchronization node
             if (elem.getOutgoing().size() > 0 )
             {
-                elem.getOutgoing().stream().forEach(new Consumer<SequenceFlow>() {
-                    @Override
-                    public void accept(SequenceFlow sequenceFlow) {
-                        if (sequenceFlow.getTarget() instanceof GatewayImpl ) {
-                            if (((GatewayImpl) sequenceFlow.getTarget()).getGatewayDirection() == GatewayDirection.Converging){
-                                sb.append("// Add to Synchronization events - this rule has to be applied before any other competing rule\n" +
-                                        "@Priority(2)\n" +
-                                        "@Name('Synchronization-Event-" + elem.getName() + "') context partitionedByPmIDAndCaseID " +
-                                        "insert into Synchronization_Events(pmID, caseID, nodeID, state, timestamp)\n" +
-                                        "select pred.pmID, pred.caseID, pred.nodeID, pred.state, pred.timestamp\n" +
-                                        "from ProcessEvent(nodeID=\"" + elem.getName() + "\") as pred;\n");
-                        }
-                        }
+                elem.getOutgoing().forEach(sequenceFlow -> {
+                    if (sequenceFlow.getTarget() instanceof GatewayImpl ) {
+                        if (((GatewayImpl) sequenceFlow.getTarget()).getGatewayDirection() == GatewayDirection.Converging){
+                            sb.append("// Add to Synchronization events - this rule has to be applied before any other competing rule\n" + "@Priority(2)\n" + "@Name('Synchronization-Event-").append(elem.getName()).append("') context partitionedByPmIDAndCaseID ").append("insert into Synchronization_Events(pmID, caseID, nodeID, state, timestamp)\n").append("select pred.pmID, pred.caseID, pred.nodeID, pred.state, pred.timestamp\n").append("from ProcessEvent(nodeID=\"").append(elem.getName()).append("\") as pred;\n");
+                    }
                     }
                 });
             }
@@ -314,14 +307,16 @@ public class BPMNRulesGenerator extends RuleGenerator {
                 handleStartEvents(sb, elem);
             } else if (elem instanceof EndEventImpl) {
 
-                SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+                SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
                 String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
                 handleEndEvents(sb, elem, inList, condition);
             } else if (elem instanceof TaskImpl) {
                 handleTasks(sb, elem, inList);
+            } else if (elem instanceof SubProcessImpl){ //this will be changed in the future
+                handleSubProcess(sb, elem, inList);
             } else if (elem instanceof ParallelGatewayImpl) {
-                handleParallelGatewys(sb, elem, inList);
+                handleParallelGateways(sb, elem, inList);
             } else if (elem instanceof InclusiveGatewayImpl) {
                 handleInclusiveGateways(sb, elem, predecessors, inList);
             } else if (elem instanceof ExclusiveGatewayImpl) {
@@ -329,7 +324,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
             }
             else if (elem instanceof EventBasedGatewayImpl )
             {
-
+                throw new NotImplementedException();
             }
         }
 
@@ -340,8 +335,12 @@ public class BPMNRulesGenerator extends RuleGenerator {
     private void handleExclusiveGateways(StringBuilder sb, FlowNode elem, String inList) {
         if (((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
 
-            sb.append("//XOR-join input events consumption \n@Priority(2) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\") as aJoin \n" +
-                    "delete from Synchronization_Events as ST where ST.nodeID in "+inList+" and ST.caseID = aJoin.caseID;\n\n");
+            sb.append("//XOR-join input events consumption \n@Priority(2) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"")
+                    .append(elem.getName())
+                    .append("\") as aJoin \n")
+                    .append("delete from Synchronization_Events as ST where ST.nodeID in ")
+                    .append(inList)
+                    .append(" and ST.caseID = aJoin.caseID;\n\n");
             //We need to check if there is a loop
             if (loopEntryNodes.contains(elem.getName()))
             {
@@ -417,7 +416,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
             }
         } else {
 
-            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
             String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
             sb.append("// XOR Split " + elem.getName() + "\n" +
@@ -437,7 +436,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
             handleORJoin(sb, elem, predecessors, inList);
 
         } else {
-            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
             String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
             sb.append("// OR Split " + elem.getName() + "\n" +
@@ -451,20 +450,18 @@ public class BPMNRulesGenerator extends RuleGenerator {
         }
     }
 
-    private void handleParallelGatewys(StringBuilder sb, FlowNode elem, String inList) {
+    private void handleParallelGateways(StringBuilder sb, FlowNode elem, String inList) {
         if (((ParallelGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
 
             for (SequenceFlow in : elem.getIncoming()) { // outer loop
                 FlowNode elem2 = in.getSource();
-                StringBuilder parallelJoinFiringEventConsumer = new StringBuilder();
 
-                parallelJoinFiringEventConsumer.append("//AND-join input events consumption-when completed \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\", state="+COMPLETED+ ") as aJoin \n" +
-                                "delete from Synchronization_Events as ST where ST.nodeID =\""+elem2.getName()+"\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
-                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n");
-
-                parallelJoinFiringEventConsumer.append("//AND-join input events consumption-when skipped \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\""+elem.getName()+"\", state="+SKIPPED+ ") as aJoin \n" +
-                        "delete from Synchronization_Events as ST where ST.nodeID =\""+elem2.getName()+"\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
-                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n");
+                String parallelJoinFiringEventConsumer = "//AND-join input events consumption-when completed \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + COMPLETED + ") as aJoin \n" +
+                        "delete from Synchronization_Events as ST where ST.nodeID =\"" + elem2.getName() + "\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
+                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n" +
+                        "//AND-join input events consumption-when skipped \ncontext partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + SKIPPED + ") as aJoin \n" +
+                        "delete from Synchronization_Events as ST where ST.nodeID =\"" + elem2.getName() + "\" and ST.caseID = aJoin.caseID and ST.state = aJoin.state and" +
+                        " ST.timestamp = (select MAX(IST.timestamp) from Synchronization_Events as IST where IST.nodeID =ST.nodeID and IST.caseID = ST.caseID);\n\n";
 
                 StringBuilder completed = new StringBuilder("// AND-join\n" +
                         "@Priority(5)\n" +
@@ -501,7 +498,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
 
         } else {
-            SequenceFlow s = elem.getIncoming().stream().collect(Collectors.toList()).get(0);
+            SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
             String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
             sb.append("// AND Split " + elem.getName() + "\n" +
@@ -547,6 +544,38 @@ public class BPMNRulesGenerator extends RuleGenerator {
         }
     }
 
+
+    private void handleSubProcess(StringBuilder sb, FlowNode elem, String inList) {
+        SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
+        String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
+
+        sb.append("// Sub-process " + elem.getName() + "\n" +
+                "// Template to handle sub-process nodes that have a single predecessor\n" +
+                "@Name('Activity-" + elem.getName() + "-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n" +
+                "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", \n" +
+                "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + STARTED + " else " + SKIPPED + " end,\n" +
+                "CV.variables, pred.timestamp\n" +
+                "From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
+                "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+
+
+        if (((SubProcessImpl) elem).getIoSpecification() != null &&
+                ((SubProcessImpl) elem).getIoSpecification().getDataOutputs() != null &&
+                ((SubProcessImpl) elem).getIoSpecification().getDataOutputs().size() > 0) {
+
+            sb.append("//Update case variable on the completion of activity " + elem.getName() + "\n" +
+                    "@Priority(2) context partitionedByPmIDAndCaseID \n" +
+                    "on ProcessEvent(nodeID=\"" + elem.getName() + "\", state=" + COMPLETED + ") as a\n" +
+                    "update Case_Variables as CV set");
+            String updates = "";
+            for (DataOutput doa : ((TaskImpl) elem).getIoSpecification().getDataOutputs()) {
+
+                updates += " variables('" + doa.getName() + "') = a.payLoad('" + doa.getName() + "'),\n";
+            }
+            sb.append(updates, 0, updates.length() - 2).append("\n");
+            sb.append("where CV.pmID = a.pmID and CV.caseID = a.caseID;\n");
+        }
+    }
     private static void handleEndEvents(StringBuilder sb, FlowNode elem, String inList, String condition) {
         //Generate a skipped or completed event based on the predecessor
         sb.append("// End event\n" +
@@ -646,22 +675,23 @@ public class BPMNRulesGenerator extends RuleGenerator {
             GraphObject orJoin = result.getNodeByID(elem.getId());
 
             List<GraphObject> preds = result.getPredecessorsFromGraph(orJoin);
-            if (preds.size()> 0)
-            for (GraphObject obj: preds)
-            {
-                qry = buildQueryToCheckAcyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
-
-                ProcessGraph result2 = qp.runQueryAgainstModel(qry,process);
-                if (result2.nodes.size()> 0)
+            if (preds.size()> 0) {
+                for (GraphObject obj: preds)
                 {
-                    acyclic.add(obj.getName());
-                }
-                qry = buildQueryToCheckCyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
-                if (qp.runQueryAgainstModel(qry,process).nodes.size()> 0)
-                {
-                    cyclic.add(obj.getName());
-                }
+                    qry = buildQueryToCheckAcyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
 
+                    ProcessGraph result2 = qp.runQueryAgainstModel(qry,process);
+                    if (result2.nodes.size()> 0)
+                    {
+                        acyclic.add(obj.getName());
+                    }
+                    qry = buildQueryToCheckCyclicReachabilityOfORJoinInput(obj.getID(), obj.getName(),obj.type, obj.type2, elem.getId(), elem.getName());
+                    if (qp.runQueryAgainstModel(qry,process).nodes.size()> 0)
+                    {
+                        cyclic.add(obj.getName());
+                    }
+
+                }
             }
             acyclic = acyclic.stream().map(e -> "\"" + e + "\"").collect(Collectors.toList());
             String acyclicList = acyclic.toString().replace("[", "(").replace("]", ")");
@@ -700,26 +730,6 @@ public class BPMNRulesGenerator extends RuleGenerator {
         }
     }
 
-    public List<String> getNodeIDs() {
 
-
-        return instance.getModelElementsByType(FlowNode.class).stream().map(elem -> elem.getName() + ", previous:" + elem.getPreviousNodes().list().stream().map(FlowElement::getName).collect(Collectors.toList())).collect(Collectors.toList());
-
-
-    }
-
-    private String difference(String inList1, String inList2) {
-        //We assume that these are two comma separated list with some parenthesis
-        StringBuilder result = new StringBuilder();
-        for (String s1 : inList1.split(",")) {
-            s1 = s1.replace("(", "").replace(")", "").trim();
-            if (!inList2.contains(s1))
-                result.append(s1).append(",");
-        }
-        result.insert(0, "(");
-        result.replace(result.length() - 1, result.length(), "");
-        result.append(")");
-        return result.toString();
-    }
 
 }

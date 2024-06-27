@@ -5,7 +5,9 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.Scanner;
 
 import com.bpmnq.ProcessGraph;
 import com.espertech.esper.common.client.EPCompiled;
@@ -20,6 +22,7 @@ import com.espertech.esper.compiler.client.EPCompiler;
 import com.espertech.esper.compiler.client.EPCompilerProvider;
 import com.espertech.esper.runtime.client.*;
 import ee.ut.dsg.process.encatment.cep.events.ProcessEvent;
+import ee.ut.dsg.process.encatment.cep.transition.TransitionGraph;
 import org.xml.sax.SAXException;
 
 import javax.xml.parsers.ParserConfigurationException;
@@ -37,12 +40,15 @@ public class Runner {
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop2.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
-        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
+//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
+//         enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Hybrid Case Management example fro Tijs Paper.bpmn");
+//        testReadDCRSVG("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\tsr-dcrgraph.svg");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test2.xml");
+//        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-graph-inner-declarative-process.xml");
+        enactHybrid("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
     }
 
-    public static void obtainProcessGraph()
-    {
+    public static void obtainProcessGraph() {
         File input;
 
         input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
@@ -50,11 +56,11 @@ public class Runner {
         BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
 
         ProcessGraph graph = BPMNRulesGenerator.buildBPMNQProcessGraph();
-        System.out.println(graph.getActivities().stream().map( e -> e.getName()).collect(Collectors.toList()).toString());
+        System.out.println(graph.getActivities().stream().map(e -> e.getName()).collect(Collectors.toList()).toString());
 
     }
-    public static void generateRules()
-    {
+
+    public static void generateRules() {
         File input;
 
         input = new File("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222.bpmn");
@@ -67,13 +73,24 @@ public class Runner {
         System.out.println(BPMNRulesGenerator.generateEPLModule());
     }
 
-    private static void enactDCR(String inputDCRXMLFile)
-    {
+    private static void enactDCR(String inputDCRXMLFile) {
         File input = new File(inputDCRXMLFile);
         try {
-            DCRRuleGenerator dcrRuleGenerator = new DCRRuleGenerator(1,1,input);
+            DCRRuleGenerator dcrRuleGenerator = new DCRRuleGenerator(1, 1, input);
             String rules = dcrRuleGenerator.generateEPLModule();
-            System.out.println(rules);
+
+
+            String moduleFileName = inputDCRXMLFile.substring(0, inputDCRXMLFile.indexOf(".")) + ".epl";
+
+            try {
+                BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
+                writer.write(rules);
+                writer.close();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            System.exit(0);
+            enactEPL(moduleFileName);
         } catch (ParserConfigurationException e) {
             throw new RuntimeException(e);
         } catch (IOException e) {
@@ -83,6 +100,15 @@ public class Runner {
         }
 
     }
+
+    private static void testReadDCRSVG(String inputFile) {
+        try {
+            TransitionGraph.parseDCRSVGToTransitionGraph(inputFile);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static void enact(String inputBPMNFile) {
 
         File input = new File(inputBPMNFile);
@@ -100,6 +126,11 @@ public class Runner {
 
 //        System.exit(0);
 
+        enactEPL(moduleFileName);
+//        }
+    }
+
+    private static void enactEPL(String moduleFileName) {
         EPCompiler compiler = EPCompilerProvider.getCompiler();
 
         Configuration configuration = new Configuration();
@@ -117,160 +148,241 @@ public class Runner {
         InputStream inputFile = null;
         //Runner.class.getClassLoader().getResourceAsStream("etc/examples/example-process-222.epl");
 //        if (inputFile == null) {
-            try {
+        try {
 //                inputFile = Files.newInputStream(Paths.get("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\example-process-222.epl"));
-                inputFile = Files.newInputStream(Paths.get(moduleFileName));
-                Module module = compiler.readModule(inputFile, "example-process-222.epl");
+            inputFile = Files.newInputStream(Paths.get(moduleFileName));
+            Module module = compiler.readModule(inputFile, "example-process-222.epl");
 
 //                Module module = compiler.parseModule(rules);
 
-                CompilerArguments compArgs = new CompilerArguments(configuration);
-                EPCompiled compiled = compiler.compile(module, compArgs);
+            CompilerArguments compArgs = new CompilerArguments(configuration);
+            EPCompiled compiled = compiler.compile(module, compArgs);
 
-                runtime = EPRuntimeProvider.getDefaultRuntime(configuration);
-                runtime.initialize();
+            runtime = EPRuntimeProvider.getDefaultRuntime(configuration);
+            runtime.initialize();
 
-                EPDeployment dep = runtime.getDeploymentService().deploy(compiled, new DeploymentOptions().setDeploymentId("flexEnactment-222"));
-                compArgs.getPath().add(runtime.getRuntimePath());
+            EPDeployment dep = runtime.getDeploymentService().deploy(compiled, new DeploymentOptions().setDeploymentId("flexEnactment-222"));
+            compArgs.getPath().add(runtime.getRuntimePath());
 
-                EPEventService eventService = runtime.getEventService();
+            EPEventService eventService = runtime.getEventService();
 
 
+            eventService.clockExternal();
+            eventService.advanceTime(0);
+            EventSender sender = eventService.getEventSender("ProcessEvent");
 
-                eventService.clockExternal();
-                eventService.advanceTime(0);
-                EventSender sender = eventService.getEventSender("ProcessEvent");
+            handleBPMNEventStream(runtime, dep, eventService);
 
-                EPStatement statement = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-events");
 
-                statement.addListener((newData, oldData, stat, runt) -> {
+            EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-case-variables");
 
-                    int last = newData.length-1;
+            statement2.addListener((newData, oldData, stat, runt) -> {
 
-                    int pmID = (int) newData[last].get("pmID");
-                    //      double x = (double) newData[0].get("x");
-                    int caseID = (int) newData[last].get("caseID");
-                    String nodeID = (String) newData[last].get("nodeID");
+                for (int i = 0; i < newData.length; i++)
+                    System.out.printf("Record of process model %d and case %d variables  %S\n", Integer.valueOf(newData[i].get("pmID").toString())
+                            , Integer.valueOf(newData[i].get("caseID").toString())
+                            , Integer.valueOf(newData[i].get("variables").toString()));
+            });
+
+            handleDCREventStream(runtime, dep,eventService);
+
+            Map<String, Object> variables = initializeProcessInstanceData();
+            for (int i = 1; i <= 1; i++) {
+                ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE", /*0,*/ "started"
+                        , variables, System.currentTimeMillis());
+
+                sender.sendEvent(startNewProcessInstance);
+                eventService.advanceTime(startNewProcessInstance.getTimestamp());
+//                    Thread.sleep(100);
+            }
+
+        } catch (IOException | ParseException | EPCompileException | EPDeployException | EPException e) {
+            e.printStackTrace();
+            System.out.println(e.getMessage());
+        }
+    }
+
+    private static void handleDCREventStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
+        EPStatement statement3 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-dcr-event");
+
+        AtomicInteger lastSeen= new AtomicInteger();
+        lastSeen.set(-1);
+        statement3.addListener((newData, oldData, stat, runt) -> {
+
+//                int last = newData.length - 1;
+
+//            System.out.println("Old available tasks are:");
+//
+//            for (int last = lastSeen.get(); oldData!= null && last < oldData.length; last++) {
+//                int pmID = (int) oldData[last].get("ProcessModelID");
+//                //      double x = (double) newData[0].get("x");
+//                int caseID = (int) oldData[last].get("caseID");
+//                String nodeID = (String) oldData[last].get("eventID");
+////                    int cycleNum = (int) newData[last].get("cycleNum");
+////                    String included = (String) newData[last].get("included");
+////                    String restless = (String) newData[last].get("restless");
+//
+////                    long time = (long) newData[last].get("timestamp");
+////                    System.out.printf("A new process event received with Process Model ID:%d," +
+////                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
+////                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
+//                System.out.printf("%d,%d,%s\n",
+//                        pmID, caseID, nodeID);
+//                lastSeen.set(last);
+//            }
+
+            System.out.println("Newly available tasks are:");
+
+            for (int last = lastSeen.get()+1; last < newData.length;last++) {
+                int pmID = (int) newData[last].get("ProcessModelID");
+                //      double x = (double) newData[0].get("x");
+                int caseID = (int) newData[last].get("caseID");
+                String nodeID = (String) newData[last].get("eventID");
 //                    int cycleNum = (int) newData[last].get("cycleNum");
-                    String state = (String) newData[last].get("state");
-                    Map<String, Object> payLoad = (Map<String, Object>) newData[last].get("payLoad");
-                    long time = (long) newData[last].get("timestamp");
+//                    String included = (String) newData[last].get("included");
+//                    String restless = (String) newData[last].get("restless");
+
+//                    long time = (long) newData[last].get("timestamp");
 //                    System.out.printf("A new process event received with Process Model ID:%d," +
 //                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
 //                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-                    System.out.printf("%d,%d,%s, %s, %s, %d\n",
-                            pmID, caseID, nodeID,state,payLoad.toString().replace(",",";"), time);
+                System.out.printf("Option %d, %d,%d,%s\n", last,
+                        pmID, caseID, nodeID);
+                lastSeen.set(last);
+            }
+
+            Scanner scanner = new Scanner(System.in);
+            int choice =-1;
+            while (! (0 <= choice && choice < newData.length ))
+            {
+                System.out.print(String.format("Enter a number between 0 and %d: ", newData.length-1));
+                choice = scanner.nextInt();
+            }
+            ProcessEvent dcrEvent = new ProcessEvent((int) newData[choice].get("ProcessModelID"),
+                                        (int) newData[choice].get("caseID"), (String) newData[choice].get("eventID"),"completed"
+                    , null, System.currentTimeMillis());
+
+            eventService.sendEventBean(dcrEvent,"ProcessEvent");
+            eventService.advanceTime(dcrEvent.getTimestamp());
+
+        });
+    }
+
+    private static Map<String, Object> initializeProcessInstanceData() {
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("Cond1", Boolean.TRUE);
+        variables.put("Cond2", Boolean.FALSE);
+        variables.put("Cond3", Boolean.FALSE);
+        variables.put("Cond4", Boolean.TRUE);
+
+        variables.put("Cond11", Boolean.TRUE);
+        variables.put("Cond22", Boolean.FALSE);
+        variables.put("Cond33", Boolean.FALSE);
+        variables.put("Cond44", Boolean.TRUE);
+        return variables;
+    }
+
+    private static void handleBPMNEventStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
+        EPStatement statement = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-events");
+
+        statement.addListener((newData, oldData, stat, runt) -> {
+
+            int last = newData.length - 1;
+
+            int pmID = (int) newData[last].get("pmID");
+            //      double x = (double) newData[0].get("x");
+            int caseID = (int) newData[last].get("caseID");
+            String nodeID = (String) newData[last].get("nodeID");
+//                    int cycleNum = (int) newData[last].get("cycleNum");
+            String state = (String) newData[last].get("state");
+            Map<String, Object> payLoad = (Map<String, Object>) newData[last].get("payLoad");
+            long time = (long) newData[last].get("timestamp");
+//                    System.out.printf("A new process event received with Process Model ID:%d," +
+//                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
+//                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
+            System.out.printf("%d,%d,%s, %s, %s, %d\n",
+                    pmID, caseID, nodeID, state, payLoad.toString().replace(",", ";"), time);
 
 //                    Handler for Activities
-                    if (nodeID.equals("A") && state.equals("started"))
-                    {
-                        handleActivityA(eventService, pmID, caseID, nodeID, payLoad);
+            if (nodeID.equals("A") && state.equals("started")) {
+                handleActivityA(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("B") && state.equals("started"))
-                    {
-                        handleActivityB(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("B") && state.equals("started")) {
+                handleActivityB(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("BB") && state.equals("started"))
-                    {
-                        handleActivityBB(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("BB") && state.equals("started")) {
+                handleActivityBB(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("C") && state.equals("started"))
-                    {
-                        handleActivityC(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("C") && state.equals("started")) {
+                handleActivityC(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("CC") && state.equals("started"))
-                    {
-                        handleActivityCC(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("CC") && state.equals("started")) {
+                handleActivityCC(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("D") && state.equals("started"))
-                    {
-                        handleActivityD(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("D") && state.equals("started")) {
+                handleActivityD(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("E") && state.equals("started"))
-                    {
-                        handleActivityE(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("E") && state.equals("started")) {
+                handleActivityE(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
-                    else if (nodeID.equals("F") && state.equals("started"))
-                    {
-                        handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("F") && state.equals("started")) {
+                handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
-                    }
+            } else if (nodeID.equals("FF") && state.equals("started")) {
+                handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
-                    else if (nodeID.equals("FF") && state.equals("started"))
-                    {
-                        handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
+            } else if (nodeID.equals("Declarative part") && state.equals("started")) {
+                System.out.println("Now the declarative part is  kicking in...");
 
-                    }
-                });
-
-
-                EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-case-variables");
-
-                statement2.addListener((newData, oldData, stat, runt) ->{
-
-                    for (int i = 0; i < newData.length;i++)
-                        System.out.printf("Record of process model %d and case %d variables  %S\n", Integer.valueOf(newData[i].get("pmID").toString())
-                        ,Integer.valueOf(newData[i].get("caseID").toString())
-                        ,Integer.valueOf(newData[i].get("variables").toString()));
-                });
-                Map<String, Object> variables = new HashMap<>();
-                variables.put("Cond1", Boolean.TRUE);
-                variables.put("Cond2", Boolean.FALSE);
-                variables.put("Cond3", Boolean.FALSE);
-                variables.put("Cond4", Boolean.TRUE);
-
-                variables.put("Cond11", Boolean.TRUE);
-                variables.put("Cond22", Boolean.FALSE);
-                variables.put("Cond33", Boolean.FALSE);
-                variables.put("Cond44", Boolean.TRUE);
-                for (int i = 1; i <=1; i++) {
-                    ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE1", /*0,*/ "started"
-                            , variables, System.currentTimeMillis());
-
-                    sender.sendEvent(startNewProcessInstance);
-                    eventService.advanceTime(startNewProcessInstance.getTimestamp());
-//                    Thread.sleep(100);
-                }
-
-            } catch (IOException | ParseException | EPCompileException | EPDeployException | EPException e) {
-                e.printStackTrace();
-                System.out.println(e.getMessage());
+            }else if (state.equals("started")) {
+                if (nodeID.startsWith("SE"))
+                    return;
+                handleGeneralActivity(eventService, pmID, caseID, nodeID, payLoad);
             }
-//        }
+        });
+    }
+
+    private static void enactHybrid(String EPLModuleFile)
+    {
+        enactEPL(EPLModuleFile);
+    }
+    private static void handleGeneralActivity(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
+
+        Map<String, Object> variables = new HashMap<>();
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        double v = Math.random();
+
+        try {
+            Thread.sleep((long) (v * 10000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private static void handleActivityA(EPEventService sender, int pmID, int caseID, String nodeID,/* int cycleNum,*/ Map<String, Object> payLoad) {
 
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
 //        variables.put("cond3", Boolean.FALSE);
-        double v =Math.random();
-        if ( v < 0.25) {
+        double v = Math.random();
+        if (v < 0.25) {
             variables.put("Cond1", Boolean.TRUE);
             variables.put("Cond2", Boolean.TRUE);
 
-        }
-        else if (v < 0.5)
-        {
+        } else if (v < 0.5) {
             variables.put("Cond1", Boolean.TRUE);
             variables.put("Cond2", Boolean.FALSE);
-        }
-        else if (v < 0.75)
-        {
+        } else if (v < 0.75) {
             variables.put("Cond1", Boolean.FALSE);
             variables.put("Cond2", Boolean.TRUE);
-        }
-        else
-        {
+        } else {
             variables.put("Cond1", Boolean.FALSE);
             variables.put("Cond2", Boolean.FALSE);
         }
@@ -280,8 +392,8 @@ public class Runner {
         variables.put("Cond11", Boolean.TRUE);
         variables.put("Cond22", Boolean.FALSE);
         try {
-            Thread.sleep((long) (v*10000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
+            Thread.sleep((long) (v * 10000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
             sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
@@ -294,17 +406,15 @@ public class Runner {
     private static void handleActivityB(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
-        if ( v < 0.5) {
+        double v = Math.random();
+        if (v < 0.5) {
             variables.put("Cond3", Boolean.TRUE);
             variables.put("Cond4", Boolean.FALSE);
 
 
-        }
-        else
-        {
+        } else {
             variables.put("Cond3", Boolean.FALSE);
             variables.put("Cond4", Boolean.TRUE);
         }
@@ -312,9 +422,9 @@ public class Runner {
 //        variables.put("Cond3", Boolean.FALSE);
 //        variables.put("Cond4", Boolean.TRUE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -323,20 +433,18 @@ public class Runner {
 
     }
 
-    private static void handleActivityBB(EPEventService sender, int pmID, int caseID, String nodeID,  Map<String, Object> payLoad) {
+    private static void handleActivityBB(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
-        if ( v < 0.5) {
+        double v = Math.random();
+        if (v < 0.5) {
             variables.put("Cond33", Boolean.TRUE);
             variables.put("Cond44", Boolean.FALSE);
 
 
-        }
-        else
-        {
+        } else {
             variables.put("Cond33", Boolean.FALSE);
             variables.put("Cond44", Boolean.TRUE);
 
@@ -345,9 +453,9 @@ public class Runner {
         variables.put("Cond33", Boolean.FALSE);
         variables.put("Cond44", Boolean.TRUE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -359,16 +467,14 @@ public class Runner {
     private static void handleActivityC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
-        if ( v < 0.5) {
+        double v = Math.random();
+        if (v < 0.5) {
             variables.put("Cond3", Boolean.TRUE);
             variables.put("Cond4", Boolean.FALSE);
 
-        }
-        else
-        {
+        } else {
             variables.put("Cond3", Boolean.FALSE);
             variables.put("Cond4", Boolean.TRUE);
         }
@@ -376,9 +482,9 @@ public class Runner {
         variables.put("Cond3", Boolean.FALSE);
         variables.put("Cond4", Boolean.TRUE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -390,16 +496,14 @@ public class Runner {
     private static void handleActivityCC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
-        if ( v < 0.5) {
+        double v = Math.random();
+        if (v < 0.5) {
             variables.put("Cond33", Boolean.TRUE);
             variables.put("Cond44", Boolean.FALSE);
 
-        }
-        else
-        {
+        } else {
             variables.put("Cond33", Boolean.FALSE);
             variables.put("Cond44", Boolean.TRUE);
         }
@@ -407,9 +511,9 @@ public class Runner {
         variables.put("3Cond3", Boolean.FALSE);
         variables.put("Cond44", Boolean.TRUE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -421,25 +525,23 @@ public class Runner {
     private static void handleActivityD(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
-        if ( v < 0.5) {
+        double v = Math.random();
+        if (v < 0.5) {
             variables.put("Cond4", Boolean.TRUE);
 
 
-        }
-        else
-        {
+        } else {
             variables.put("Cond4", Boolean.FALSE);
 
         }
 
 //        variables.put("cond3", Boolean.FALSE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -451,9 +553,9 @@ public class Runner {
     private static void handleActivityE(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
-        for (String k :payLoad.keySet())
+        for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
-        double v =Math.random();
+        double v = Math.random();
 //        if ( v < 0.5) {
 //            variables.put("Cond4", Boolean.TRUE);
 //
@@ -467,9 +569,9 @@ public class Runner {
 
 //        variables.put("cond3", Boolean.FALSE);
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed",variables,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
@@ -480,12 +582,12 @@ public class Runner {
 
     private static void handleActivityF(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
 
-        double v =Math.random();
+        double v = Math.random();
 
         try {
-            Thread.sleep((long) (v*1000));
-            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID,"completed",payLoad,System.currentTimeMillis());
-            sender.sendEventBean(activityACompleted,"ProcessEvent");
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", payLoad, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
             sender.advanceTime(activityACompleted.getTimestamp());
         } catch (Exception e) {
             e.printStackTrace();
