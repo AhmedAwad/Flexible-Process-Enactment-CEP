@@ -29,33 +29,33 @@ public class DCRRuleGenerator extends RuleGenerator{
     "create table EventState (ProcessModelID int primary key, caseID int primary key,\n"+
                              "eventID string primary key, happened boolean, included boolean, restless boolean);\n";
 
-    private static  final String DEFINE_TRACK_EVENTS ="@name('track-dcr-event') context partitionedByPmIDAndCaseID \n" +
+    private static  final String DEFINE_TRACK_EVENTS ="@Audit @Priority(2) @name('track-dcr-event') context partitionedByPmIDAndCaseID \n" +
             "on ProcessEvent as a\n" +
-            "select ProcessModelID, caseID, eventID from EventState as ES\n" +
-            "where included=true;\n";
-    private static final String INITIAL_EVENT_STATE = "insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)\n" +
-            "select %d,%d,\"%s\",%s,%s,%s;\n";
+            "select ProcessModelID, ES.caseID as caseID, eventID from EventState as ES\n" +
+            "where included=true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID;\n";
+    private static final String INITIAL_EVENT_STATE = "@Audit @name('init-state-table') @Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"SE\", state=\"started\") as a  insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)\n" +
+            "select a.pmID,a.caseID,\"%s\",%s,%s,%s;\n";
 
 
     private static final String UPDATE_EVENT_STATE ="// Update an activity to be happened (executed) and no longer required (restless=false)\n" +
-            "on ProcessEvent as a\n" +
+            "context partitionedByPmIDAndCaseID on ProcessEvent as a\n" +
             "update EventState as ES set restless = false, happened=true\n" +
-            "where ES.included = true and ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.eventID;\n";
+            "where ES.included = true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.nodeID;\n";
 
     private static final String EXCLUDE_RULE ="// exclude(%s, %s)\n" +
-            "on ProcessEvent(eventID=\"%s\") as a\n" +
+            "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set included = false\n" +
-            "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
 
     private static final String INCLUDE_RULE ="// include(%s, %s)\n" +
-            "on ProcessEvent(eventID=\"%s\") as a\n" +
+            "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set included = true\n" +
-            "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
 
     private static final String RESPONSE_RULE ="// response(%s,%s)\n"+
-            "on ProcessEvent(eventID=\"%s\") as a\n" +
-            "update EventState as ES set restless = true,\n" +
-            "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
+            "update EventState as ES set restless = true\n" +
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
     private final Document document;
     public DCRRuleGenerator(long pmID, long caseID,File file) throws ParserConfigurationException, IOException, SAXException {
         DocumentBuilderFactory factory =
@@ -81,14 +81,14 @@ public class DCRRuleGenerator extends RuleGenerator{
             result.append(UPDATE_EVENT_STATE);
             for (Iterator<Event> it = graph.getNodes(); it.hasNext(); ) {
                 Event e = it.next();
-                result.append(String.format(INITIAL_EVENT_STATE,processModelID,caseID,e.getName(),"false",!e.isExcluded(),"false"));
+                result.append(String.format(INITIAL_EVENT_STATE,e.getName(),"false",!e.isExcluded(),"false"));
 
                 Set<Event> preConditions = graph.getPreConditionNodes(e);
                 if (!preConditions.isEmpty())
                 {
-                    StringBuilder  preConditionRule = new StringBuilder(String.format("// precondition rule\non ProcessEvent(eventID=\"%s\") as a\n" +
-                            "update EventState as ES set restless = false, happened=true,\n" +
-                            "where ES.pmID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n",e.getName(),e.getName()));
+                    StringBuilder  preConditionRule = new StringBuilder(String.format("// precondition rule\n @Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
+                            "update EventState as ES set restless = false, happened=true\n" +
+                            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n",e.getName(),e.getName()));
 
                     for (Event preConditionEvent : preConditions)
                     {

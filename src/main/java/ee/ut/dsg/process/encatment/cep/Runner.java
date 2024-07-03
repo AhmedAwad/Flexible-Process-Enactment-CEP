@@ -42,10 +42,15 @@ public class Runner {
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
 //         enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Hybrid Case Management example fro Tijs Paper.bpmn");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V2.bpmn");
 //        testReadDCRSVG("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\tsr-dcrgraph.svg");
-//        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\DCR-test2.xml");
+//        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.xml");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-graph-inner-declarative-process.xml");
-        enactHybrid("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
+//        enactHybrid("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
+
+//        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.epl");
+//        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
+        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V3.epl");
     }
 
     public static void obtainProcessGraph() {
@@ -89,7 +94,7 @@ public class Runner {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-            System.exit(0);
+//            System.exit(0);
             enactEPL(moduleFileName);
         } catch (ParserConfigurationException e) {
             throw new RuntimeException(e);
@@ -109,7 +114,7 @@ public class Runner {
         }
     }
 
-    private static void enact(String inputBPMNFile) {
+    private static void enactBPMN(String inputBPMNFile) {
 
         File input = new File(inputBPMNFile);
         BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
@@ -124,7 +129,7 @@ public class Runner {
             throw new RuntimeException(e);
         }
 
-//        System.exit(0);
+        System.exit(0);
 
         enactEPL(moduleFileName);
 //        }
@@ -176,14 +181,15 @@ public class Runner {
 
             EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-case-variables");
 
-            statement2.addListener((newData, oldData, stat, runt) -> {
+            if (statement2 != null) {
+                statement2.addListener((newData, oldData, stat, runt) -> {
 
-                for (int i = 0; i < newData.length; i++)
-                    System.out.printf("Record of process model %d and case %d variables  %S\n", Integer.valueOf(newData[i].get("pmID").toString())
-                            , Integer.valueOf(newData[i].get("caseID").toString())
-                            , Integer.valueOf(newData[i].get("variables").toString()));
-            });
-
+                    for (int i = 0; i < newData.length; i++)
+                        System.out.printf("Record of process model %d and case %d variables  %S\n", Integer.valueOf(newData[i].get("pmID").toString())
+                                , Integer.valueOf(newData[i].get("caseID").toString())
+                                , Integer.valueOf(newData[i].get("variables").toString()));
+                });
+            }
             handleDCREventStream(runtime, dep,eventService);
 
             Map<String, Object> variables = initializeProcessInstanceData();
@@ -205,141 +211,247 @@ public class Runner {
     private static void handleDCREventStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
         EPStatement statement3 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-dcr-event");
 
-        AtomicInteger lastSeen= new AtomicInteger();
-        lastSeen.set(-1);
-        statement3.addListener((newData, oldData, stat, runt) -> {
+        if (statement3 != null) {
+            AtomicInteger lastSeen = new AtomicInteger();
+            lastSeen.set(-1);
+            statement3.addListener((newData, oldData, stat, runt) -> {
 
-//                int last = newData.length - 1;
 
-//            System.out.println("Old available tasks are:");
-//
-//            for (int last = lastSeen.get(); oldData!= null && last < oldData.length; last++) {
-//                int pmID = (int) oldData[last].get("ProcessModelID");
-//                //      double x = (double) newData[0].get("x");
-//                int caseID = (int) oldData[last].get("caseID");
-//                String nodeID = (String) oldData[last].get("eventID");
-////                    int cycleNum = (int) newData[last].get("cycleNum");
-////                    String included = (String) newData[last].get("included");
-////                    String restless = (String) newData[last].get("restless");
-//
-////                    long time = (long) newData[last].get("timestamp");
-////                    System.out.printf("A new process event received with Process Model ID:%d," +
-////                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
-////                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-//                System.out.printf("%d,%d,%s\n",
-//                        pmID, caseID, nodeID);
-//                lastSeen.set(last);
-//            }
+                System.out.println("Newly available tasks are:");
 
-            System.out.println("Newly available tasks are:");
+                for (int last = lastSeen.get() + 1; last < newData.length; last++) {
+                    int pmID = (int) newData[last].get("ProcessModelID");
+                    //      double x = (double) newData[0].get("x");
+                    int caseID = (int) newData[last].get("caseID");
+                    String nodeID = (String) newData[last].get("eventID");
 
-            for (int last = lastSeen.get()+1; last < newData.length;last++) {
-                int pmID = (int) newData[last].get("ProcessModelID");
-                //      double x = (double) newData[0].get("x");
-                int caseID = (int) newData[last].get("caseID");
-                String nodeID = (String) newData[last].get("eventID");
-//                    int cycleNum = (int) newData[last].get("cycleNum");
-//                    String included = (String) newData[last].get("included");
-//                    String restless = (String) newData[last].get("restless");
+                    System.out.printf("Option %d, %d,%d,%s\n", last,
+                            pmID, caseID, nodeID);
+                    lastSeen.set(last);
+                }
 
-//                    long time = (long) newData[last].get("timestamp");
-//                    System.out.printf("A new process event received with Process Model ID:%d," +
-//                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
-//                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-                System.out.printf("Option %d, %d,%d,%s\n", last,
-                        pmID, caseID, nodeID);
-                lastSeen.set(last);
-            }
+                Scanner scanner = new Scanner(System.in);
+                int choice = -1;
+                while (!(0 <= choice && choice < newData.length)) {
+                    System.out.print(String.format("Enter a number between 0 and %d: ", newData.length - 1));
+                    choice = scanner.nextInt();
+                }
+                ProcessEvent dcrEvent = new ProcessEvent((int) newData[choice].get("ProcessModelID"),
+                        (int) newData[choice].get("caseID"), (String) newData[choice].get("eventID"), "completed"
+                        , null, System.currentTimeMillis());
 
-            Scanner scanner = new Scanner(System.in);
-            int choice =-1;
-            while (! (0 <= choice && choice < newData.length ))
-            {
-                System.out.print(String.format("Enter a number between 0 and %d: ", newData.length-1));
-                choice = scanner.nextInt();
-            }
-            ProcessEvent dcrEvent = new ProcessEvent((int) newData[choice].get("ProcessModelID"),
-                                        (int) newData[choice].get("caseID"), (String) newData[choice].get("eventID"),"completed"
-                    , null, System.currentTimeMillis());
+                eventService.sendEventBean(dcrEvent, "ProcessEvent");
+                eventService.advanceTime(dcrEvent.getTimestamp());
 
-            eventService.sendEventBean(dcrEvent,"ProcessEvent");
-            eventService.advanceTime(dcrEvent.getTimestamp());
-
-        });
+            });
+        }
     }
 
     private static Map<String, Object> initializeProcessInstanceData() {
         Map<String, Object> variables = new HashMap<>();
-        variables.put("Cond1", Boolean.TRUE);
-        variables.put("Cond2", Boolean.FALSE);
-        variables.put("Cond3", Boolean.FALSE);
-        variables.put("Cond4", Boolean.TRUE);
-
-        variables.put("Cond11", Boolean.TRUE);
-        variables.put("Cond22", Boolean.FALSE);
-        variables.put("Cond33", Boolean.FALSE);
-        variables.put("Cond44", Boolean.TRUE);
+//        variables.put("Cond1", Boolean.TRUE);
+//        variables.put("Cond2", Boolean.FALSE);
+//        variables.put("Cond3", Boolean.FALSE);
+//        variables.put("Cond4", Boolean.TRUE);
+//
+//        variables.put("Cond11", Boolean.TRUE);
+//        variables.put("Cond22", Boolean.FALSE);
+//        variables.put("Cond33", Boolean.FALSE);
+//        variables.put("Cond44", Boolean.TRUE);
+        variables.put("nextAction","close");
+        variables.put("iterate",Boolean.TRUE);
+        variables.put("noiterate", Boolean.FALSE);
+        variables.put("holdMeeting", Boolean.FALSE);
+        variables.put("caseLocked", Boolean.FALSE);
         return variables;
     }
 
     private static void handleBPMNEventStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
         EPStatement statement = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-events");
 
-        statement.addListener((newData, oldData, stat, runt) -> {
+        if (statement != null) {
+            statement.addListener((newData, oldData, stat, runt) -> {
 
-            int last = newData.length - 1;
+                int last = newData.length - 1;
 
-            int pmID = (int) newData[last].get("pmID");
-            //      double x = (double) newData[0].get("x");
-            int caseID = (int) newData[last].get("caseID");
-            String nodeID = (String) newData[last].get("nodeID");
+                int pmID = (int) newData[last].get("pmID");
+                //      double x = (double) newData[0].get("x");
+                int caseID = (int) newData[last].get("caseID");
+                String nodeID = (String) newData[last].get("nodeID");
 //                    int cycleNum = (int) newData[last].get("cycleNum");
-            String state = (String) newData[last].get("state");
-            Map<String, Object> payLoad = (Map<String, Object>) newData[last].get("payLoad");
-            long time = (long) newData[last].get("timestamp");
+                String state = (String) newData[last].get("state");
+                Map<String, Object> payLoad = (Map<String, Object>) newData[last].get("payLoad");
+                if (payLoad == null) {
+                    payLoad = new HashMap<String, Object>();
+                    payLoad.put("None", "none");
+                }
+                long time = (long) newData[last].get("timestamp");
 //                    System.out.printf("A new process event received with Process Model ID:%d," +
 //                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
 //                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-            System.out.printf("%d,%d,%s, %s, %s, %d\n",
-                    pmID, caseID, nodeID, state, payLoad.toString().replace(",", ";"), time);
+                if (!state.equals("skipped"))
+                    System.out.printf("%d,%d,%s, %s, %s, %d\n",
+                        pmID, caseID, nodeID, state, payLoad.toString().replace(",", ";"), time);
 
 //                    Handler for Activities
-            if (nodeID.equals("A") && state.equals("started")) {
-                handleActivityA(eventService, pmID, caseID, nodeID, payLoad);
+                if (nodeID.equals("A") && state.equals("started")) {
+                    handleActivityA(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("B") && state.equals("started")) {
-                handleActivityB(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("B") && state.equals("started")) {
+                    handleActivityB(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("BB") && state.equals("started")) {
-                handleActivityBB(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("BB") && state.equals("started")) {
+                    handleActivityBB(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("C") && state.equals("started")) {
-                handleActivityC(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("C") && state.equals("started")) {
+                    handleActivityC(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("CC") && state.equals("started")) {
-                handleActivityCC(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("CC") && state.equals("started")) {
+                    handleActivityCC(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("D") && state.equals("started")) {
-                handleActivityD(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("D") && state.equals("started")) {
+                    handleActivityD(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("E") && state.equals("started")) {
-                handleActivityE(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("E") && state.equals("started")) {
+                    handleActivityE(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("F") && state.equals("started")) {
-                handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("F") && state.equals("started")) {
+                    handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("FF") && state.equals("started")) {
-                handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
+                } else if (nodeID.equals("FF") && state.equals("started")) {
+                    handleActivityF(eventService, pmID, caseID, nodeID, payLoad);
 
-            } else if (nodeID.equals("Declarative part") && state.equals("started")) {
-                System.out.println("Now the declarative part is  kicking in...");
+                } else if (nodeID.equals("Decide what to do next") && state.equals("started")) {
+                    handleActivityDecideWhatToDoNext(eventService, pmID, caseID, nodeID, payLoad);
 
-            }else if (state.equals("started")) {
-                if (nodeID.startsWith("SE"))
-                    return;
-                handleGeneralActivity(eventService, pmID, caseID, nodeID, payLoad);
-            }
-        });
+                 } else if (nodeID.equals("Schedule meeting") && state.equals("started")) {
+                    handleActivityScheduleMeeting(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Hold meeting") && state.equals("started")) {
+                    handleActivityHoldMeeting(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Lock case") && state.equals("started")) {
+                    handleActivityLockCase(eventService, pmID, caseID, nodeID, payLoad);
+
+                } //else if(nodeID.equals("Hold meeting") && state.equals("started")){
+//                handleActivityHoldMeeting(eventService,pmID,caseID,nodeID,payLoad);
+
+//            }
+                else if (nodeID.equals("Declarative part") && state.equals("started")) {
+                    System.out.println("Now the declarative part is  kicking in...");
+
+                } else if (state.equals("started")) {
+                    if (nodeID.startsWith("SE"))
+                        return;
+                    handleGeneralActivity(eventService, pmID, caseID, nodeID, payLoad);
+                }
+
+            });
+        }
+    }
+
+    private static void handleActivityScheduleMeeting(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("holdMeeting",Boolean.TRUE);
+
+        ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+        sender.sendEventBean(activityACompleted, "ProcessEvent");
+        sender.advanceTime(activityACompleted.getTimestamp());
+
+    }
+
+    private static void handleActivityHoldMeeting(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("holdMeeting",Boolean.FALSE);
+
+        ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+        sender.sendEventBean(activityACompleted, "ProcessEvent");
+        sender.advanceTime(activityACompleted.getTimestamp());
+
+    }
+
+    private static void handleActivityLockCase(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("caseLocked",Boolean.TRUE);
+
+        ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+        sender.sendEventBean(activityACompleted, "ProcessEvent");
+        sender.advanceTime(activityACompleted.getTimestamp());
+
+    }
+    private static void handleActivityDecideWhatToDoNext(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+
+        System.out.println("Choose one option");
+        if (variables.get("caseLocked").equals(Boolean.FALSE))
+            System.out.println("1 - Upload document");
+        System.out.println("2 - Search documents");
+        System.out.println("3 - Download document");
+        if (variables.get("holdMeeting").equals(Boolean.FALSE))
+            System.out.println("4 - Schedule meeting");
+        if (variables.get("holdMeeting").equals(Boolean.TRUE))
+            System.out.println("5 - Hold meeting");
+
+        System.out.println("6 - Lock case");
+        System.out.println("7 - Close case");
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 7));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("nextAction","upload");
+        else if (choice ==2)
+            variables.put("nextAction", "search");
+        else if (choice == 3)
+            variables.put("nextAction","download");
+        else if (choice ==4)
+            variables.put("nextAction", "schedule");
+        else if (choice ==5)
+            variables.put("nextAction","hold");
+        else if (choice ==6)
+            variables.put("nextAction","lock");
+        else if (choice ==7)
+            variables.put("nextAction","close");
+
+        if (choice < 7)
+        {
+            variables.put("iterate", Boolean.TRUE);
+            variables.put("noiterate", Boolean.FALSE);
+        }
+        else
+        {
+            variables.put("noiterate", Boolean.TRUE);
+            variables.put("iterate", Boolean.FALSE);
+        }
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private static void enactHybrid(String EPLModuleFile)
