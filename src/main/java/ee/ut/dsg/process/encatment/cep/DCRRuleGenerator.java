@@ -38,24 +38,27 @@ public class DCRRuleGenerator extends RuleGenerator{
 
 
     private static final String UPDATE_EVENT_STATE ="// Update an activity to be happened (executed) and no longer required (restless=false)\n" +
-            "context partitionedByPmIDAndCaseID on ProcessEvent as a\n" +
+            "@Priority(10) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set restless = false, happened=true\n" +
             "where ES.included = true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.nodeID;\n";
 
     private static final String EXCLUDE_RULE ="// exclude(%s, %s)\n" +
             "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set included = false\n" +
-            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n and exists (select 1 from EventState as ES2 where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID\n" +
+            "and ES2.happened = true);\n";
 
     private static final String INCLUDE_RULE ="// include(%s, %s)\n" +
             "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set included = true\n" +
-            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n and exists (select 1 from EventState as ES2 where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID\n" +
+            "and ES2.happened = true);\n";
 
     private static final String RESPONSE_RULE ="// response(%s,%s)\n"+
             "@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
             "update EventState as ES set restless = true\n" +
-            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\";\n";
+            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n and exists (select 1 from EventState as ES2 where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID\n" +
+            "and ES2.happened = true);\n";
     private final Document document;
     public DCRRuleGenerator(long pmID, long caseID,File file) throws ParserConfigurationException, IOException, SAXException {
         DocumentBuilderFactory factory =
@@ -78,15 +81,16 @@ public class DCRRuleGenerator extends RuleGenerator{
             StringBuilder result = new StringBuilder(DEFINE_CONTEXT);
             result.append(EVENT_STATE_TABLE);
             result.append(DEFINE_TRACK_EVENTS);
-            result.append(UPDATE_EVENT_STATE);
+//            result.append(UPDATE_EVENT_STATE);
             for (Iterator<Event> it = graph.getNodes(); it.hasNext(); ) {
                 Event e = it.next();
                 result.append(String.format(INITIAL_EVENT_STATE,e.getName(),"false",!e.isExcluded(),"false"));
 
                 Set<Event> preConditions = graph.getPreConditionNodes(e);
+                Set<Event> milestones = graph.getMileStones(e);
                 if (!preConditions.isEmpty())
                 {
-                    StringBuilder  preConditionRule = new StringBuilder(String.format("// precondition rule\n @Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
+                    StringBuilder  preConditionRule = new StringBuilder(String.format("// precondition rule\n @Priority(10) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
                             "update EventState as ES set restless = false, happened=true\n" +
                             "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n",e.getName(),e.getName()));
 
@@ -99,6 +103,25 @@ public class DCRRuleGenerator extends RuleGenerator{
 
                     result.append(preConditionRule);
 
+                }
+                else if (!milestones.isEmpty())
+                {
+                    StringBuilder  milestoneRule = new StringBuilder(String.format("// milestone rule\n @Priority(10) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"%s\") as a\n" +
+                            "update EventState as ES set restless = false, happened=true\n" +
+                            "where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=\"%s\"\n",e.getName(),e.getName()));
+
+                    for (Event milestoneEvent : milestones)
+                    {
+                        milestoneRule.append(String.format(" and exists (select 1 from EventState as ES2 where ES2.eventID = \"%s\" and ES2.caseID = ES.caseID \n" +
+                                "and (not ES2.included or (ES.included and ES2.happened)))\n",milestoneEvent.getName()));
+                    }
+                    milestoneRule.append(";\n");
+
+                    result.append(milestoneRule);
+                }
+                else
+                {
+                    result.append(String.format(UPDATE_EVENT_STATE, e.getName()));
                 }
 
             }

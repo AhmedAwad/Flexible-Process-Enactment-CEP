@@ -54,4 +54,9 @@ public class DCRGraph {
         return edges.stream().filter(r ->
                 r.getDestination().equals(e) && (r.getRelationType() == RelationType.CONDITION || r.getRelationType() == RelationType.PRE_Condition)).map(Relation::getSource).collect(Collectors.toSet());
     }
+
+    public Set<Event> getMileStones(Event e) {
+        return edges.stream().filter(r ->
+                r.getDestination().equals(e) && (r.getRelationType() == RelationType.MILESTONE)).map(Relation::getSource).collect(Collectors.toSet());
+    }
 }

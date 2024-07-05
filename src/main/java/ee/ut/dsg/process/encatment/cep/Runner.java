@@ -43,14 +43,15 @@ public class Runner {
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
 //         enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Hybrid Case Management example fro Tijs Paper.bpmn");
 //        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V2.bpmn");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Simple Process.bpmn");
 //        testReadDCRSVG("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\tsr-dcrgraph.svg");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.xml");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-graph-inner-declarative-process.xml");
 //        enactHybrid("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
-
+        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\all-relations-DCR.xml");
 //        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.epl");
 //        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
-        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V3.epl");
+//        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V3.epl");
     }
 
     public static void obtainProcessGraph() {
@@ -94,7 +95,7 @@ public class Runner {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-//            System.exit(0);
+            System.exit(0);
             enactEPL(moduleFileName);
         } catch (ParserConfigurationException e) {
             throw new RuntimeException(e);
