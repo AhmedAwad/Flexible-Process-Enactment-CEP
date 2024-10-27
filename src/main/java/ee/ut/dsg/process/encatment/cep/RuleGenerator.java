@@ -11,7 +11,7 @@ public abstract class RuleGenerator {
                 "create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;\n" +
                 "\n" +
                 "@Audit\n" +
-                "@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, state, payLoad, timestamp  from ProcessEvent;\n");
+                "@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, state, payLoad, timestamp  from ProcessEvent;\n\n");
     }
 
     public abstract String generateEPLModule();

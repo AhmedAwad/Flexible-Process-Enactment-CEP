@@ -12,8 +12,10 @@ import java.util.Scanner;
 import com.bpmnq.ProcessGraph;
 import com.espertech.esper.common.client.EPCompiled;
 import com.espertech.esper.common.client.EPException;
+import com.espertech.esper.common.client.EventBean;
 import com.espertech.esper.common.client.EventSender;
 import com.espertech.esper.common.client.configuration.Configuration;
+import com.espertech.esper.common.client.fireandforget.EPFireAndForgetQueryResult;
 import com.espertech.esper.common.client.module.Module;
 import com.espertech.esper.common.client.module.ParseException;
 import com.espertech.esper.compiler.client.CompilerArguments;
@@ -37,21 +39,24 @@ public class Runner {
 //        generateRules();
 //        System.exit(0);
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\IrreducibleLoop.bpmn");
-//        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Process222V7.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop2.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithWhileLoop3.bpmn");
 //        enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\ProcessWithTwoLoopsV11.bpmn");
 //         enact("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Hybrid Case Management example fro Tijs Paper.bpmn");
-//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V2.bpmn");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V4.bpmn");
 //        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Simple Process.bpmn");
 //        testReadDCRSVG("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\tsr-dcrgraph.svg");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.xml");
 //        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-graph-inner-declarative-process.xml");
 //        enactHybrid("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
-        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\all-relations-DCR.xml");
+//        enactDCR("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\all-relations-DCR.xml");
 //        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\DCR\\dcr-case-managment-hugo.epl");
 //        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\hybrid\\hybrid.epl");
 //        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Case Management example fro Tijs Paper V3.epl");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Simple Process.bpmn");
+//        enactBPMN("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Simple Inclusive OR.bpmn");
+//        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Simple Inclusive OR.epl");
     }
 
     public static void obtainProcessGraph() {
@@ -130,7 +135,7 @@ public class Runner {
             throw new RuntimeException(e);
         }
 
-        System.exit(0);
+//        System.exit(0);
 
         enactEPL(moduleFileName);
 //        }
@@ -157,7 +162,7 @@ public class Runner {
         try {
 //                inputFile = Files.newInputStream(Paths.get("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\example-process-222.epl"));
             inputFile = Files.newInputStream(Paths.get(moduleFileName));
-            Module module = compiler.readModule(inputFile, "example-process-222.epl");
+            Module module = compiler.readModule(inputFile, moduleFileName);
 
 //                Module module = compiler.parseModule(rules);
 
@@ -178,7 +183,7 @@ public class Runner {
             EventSender sender = eventService.getEventSender("ProcessEvent");
 
             handleBPMNEventStream(runtime, dep, eventService);
-
+//            handleBPMNStateTableUpdateStream(runtime,dep,eventService);
 
             EPStatement statement2 = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-case-variables");
 
@@ -260,8 +265,8 @@ public class Runner {
 //        variables.put("Cond33", Boolean.FALSE);
 //        variables.put("Cond44", Boolean.TRUE);
         variables.put("nextAction","close");
-        variables.put("iterate",Boolean.TRUE);
-        variables.put("noiterate", Boolean.FALSE);
+//        variables.put("iterate",Boolean.TRUE);
+//        variables.put("noiterate", Boolean.FALSE);
         variables.put("holdMeeting", Boolean.FALSE);
         variables.put("caseLocked", Boolean.FALSE);
         return variables;
@@ -293,6 +298,25 @@ public class Runner {
                 if (!state.equals("skipped"))
                     System.out.printf("%d,%d,%s, %s, %s, %d\n",
                         pmID, caseID, nodeID, state, payLoad.toString().replace(",", ";"), time);
+
+                // check the state table content
+
+//                String query = "select * from Execution_State order by timestamp desc";
+//                CompilerArguments compilerArguments = new CompilerArguments();
+//                compilerArguments.getPath().add(runtime.getRuntimePath());
+//                EPCompiled compiled = null;
+//                try {
+//                    compiled = EPCompilerProvider.getCompiler().compileQuery(query, compilerArguments);
+//                    EPFireAndForgetQueryResult result = runtime.getFireAndForgetService().executeQuery(compiled);
+//                    System.out.println("State table size "+ result.getArray().length);
+//                    for (EventBean row : result.getArray()) {
+//                        System.out.printf("State table content --- %d, %d, %s, %s, %d\n", (int) row.get("pmID"), (int) row.get("caseID"), row.get("nodeID"), row.get("state"), (long)row.get("timestamp"));
+//                    }
+//                } catch (EPCompileException e) {
+//                    throw new RuntimeException(e);
+//                }
+
+
 
 //                    Handler for Activities
                 if (nodeID.equals("A") && state.equals("started")) {
@@ -346,6 +370,32 @@ public class Runner {
                         return;
                     handleGeneralActivity(eventService, pmID, caseID, nodeID, payLoad);
                 }
+
+            });
+        }
+    }
+
+    private static void handleBPMNStateTableUpdateStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
+        EPStatement statement = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-state-table");
+
+        if (statement != null) {
+            statement.addListener((newData, oldData, stat, runt) -> {
+
+                int last = newData.length - 1;
+
+                int pmID = (int) newData[last].get("pmID");
+                //      double x = (double) newData[0].get("x");
+                int caseID = (int) newData[last].get("caseID");
+                String nodeID = (String) newData[last].get("nodeID");
+//                    int cycleNum = (int) newData[last].get("cycleNum");
+                String state = (String) newData[last].get("state");
+
+                long time = (long) newData[last].get("timestamp");
+//                    System.out.printf("A new process event received with Process Model ID:%d," +
+//                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
+//                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
+                System.out.printf("%d,%d,%s, %s, %d\n",
+                            pmID, caseID, nodeID, state, time);
 
             });
         }
@@ -583,17 +633,25 @@ public class Runner {
         for (String k : payLoad.keySet())
             variables.put(k, payLoad.get(k));
         double v = Math.random();
-        if (v < 0.5) {
-            variables.put("Cond3", Boolean.TRUE);
-            variables.put("Cond4", Boolean.FALSE);
+        if (v < 0.25) {
+            variables.put("Cond1", Boolean.TRUE);
+            variables.put("Cond2", Boolean.TRUE);
 
-        } else {
-            variables.put("Cond3", Boolean.FALSE);
-            variables.put("Cond4", Boolean.TRUE);
+        } else if ( v < 0.5){
+            variables.put("Cond1", Boolean.TRUE);
+            variables.put("Cond2", Boolean.FALSE);
         }
-
-        variables.put("Cond3", Boolean.FALSE);
-        variables.put("Cond4", Boolean.TRUE);
+        else if (v < 0.75) {
+            variables.put("Cond1", Boolean.FALSE);
+            variables.put("Cond2", Boolean.TRUE);
+        }
+        else
+        {
+            variables.put("Cond1", Boolean.FALSE);
+            variables.put("Cond2", Boolean.FALSE);
+        }
+        variables.put("Cond1", Boolean.TRUE);
+        variables.put("Cond2", Boolean.FALSE);
         try {
             Thread.sleep((long) (v * 1000));
             ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
