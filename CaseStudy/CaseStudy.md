@@ -509,5 +509,199 @@ Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Search
 and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
 ```
 
+### Hybrid 
+
+The following code snippet shows the mapping of the hybrid process of Figure 4. As it mixes BPMN and DCR processes, we highlight the handing from the hosting process, i.e., the BPMN process, to the hosted declarative process. The handover starts by observing the start event of the ``Declarative Part'' sub-process, Line $82$ to $102$ which initialize the DCR ``EventState`` table. The handback takes place at line $175$ When the ``Finish Case Work`` ``completed`` event is observed. This triggers the completion of the _Declarative Part_ sub-process and then clears the ``EventState`` table. The host BPMN process will resume execution upon observing the _Declarative part_ ``completed`` event as indicated at Line $52$.
+```sql
+create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;
+--  BPMN Process */
+
+-- Create the table that holds case variables */
+Create Table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);
+@name('track-case-variables')  on ProcessEvent a Select  a.pmID, a.caseID, variables from Case_Variables as cv 
+Where cv.pmID = a.pmID and cv.caseID = a.caseID;
+
+Create Expression boolean js:evaluate(caseVariables, cond) [
+    evaluate(caseVariables, cond);
+    function evaluate(caseVariables, cond){
+        if (cond == "true")
+        {
+            return true;
+        }
+
+        return false;
+    }
+];
+
+-- Execution State */
+create table Execution_State (pmID int primary key, caseID int primary key, nodeID string primary key, state string, timestamp long);
+-- Update the state table on the occurrence of an event */
+@Priority(1)
+context partitionedByPmIDAndCaseID on ProcessEvent as pe
+merge Execution_State as es
+where es.pmID = pe.pmID and es.caseID = pe.caseID and es.nodeID = pe.nodeID
+when matched then
+    update set es.state = pe.state, es.timestamp = pe.timestamp
+when not matched then
+    insert into Execution_State(pmID, caseID, nodeID, state, timestamp) select pe.pmID, pe.caseID, pe.nodeID,  pe.state, pe.timestamp;
+
+
+-- Start event -- this shall be injected from outside */
+Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+Select pred.pmID, pred.caseID, "SE","completed", pred.payLoad, pred.timestamp
+from ProcessEvent(nodeID="SE", state="started") as pred;
+-- Initiate case variables as a response to the start event */
+@Priority(100) @Name('Insert-Case-Variables') 
+Insert into Case_Variables (pmID, caseID, variables )
+Select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID="SE", state="started") as st;
+
+
+-- Activity Create Case */
+Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+Select pred.pmID, pred.caseID, "Create Case",  case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "started" else "skipped" end,
+CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+Where pred.state in ("completed", "skipped") and pred.nodeID in ("SE");
+
+-- Sub-process Declarative part */
+Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+Select pred.pmID, pred.caseID, "Declarative part", case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "started" else "skipped" end,
+CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+Where pred.state in ("completed", "skipped") and pred.nodeID in ("Create Case");
+
+-- Activity Close case */
+Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+Select pred.pmID, pred.caseID, "Close case", 
+case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "started" else "skipped" end, CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+Where pred.state in ("completed", "skipped") and pred.nodeID in ("Declarative part");
+
+-- End event */
+@Priority(200) Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+Select pred.pmID, pred.caseID, "EE",  case when pred.state="completed"  and  evaluate(CV.variables, "true") = true then "completed" else "skipped" end,
+CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+Where pred.state in ("completed", "skipped") and pred.nodeID in ("Close case");
+
+@Priority(5)  on ProcessEvent(nodeID="EE", state="completed") as a
+Delete from Execution_State as H
+Where H.pmID = a.pmID and H.caseID = a.caseID and not exists (Select 1 from Execution_History as H Where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE" and H.state ="completed");
+
+
+-- DCR Process */
+Create Table EventState (ProcessModelID int primary key, caseID int primary key, eventID string primary key, happened boolean, included boolean, restless boolean);
+@Priority(2) on ProcessEvent as a
+Select ProcessModelID, ES.caseID as caseID, eventID from EventState as ES
+Where included=true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID;
+-- Update an activity to be happened (executed) and no longer required (restless=false) */
+on ProcessEvent as a
+Update EventState as ES set restless = false, happened=true
+Where ES.included = true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.nodeID;
+
+-- Initialize the event state based on the arrival of the linking event */
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Hold Meeting",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Finish case work",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Download document",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Lock case",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Search documents",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Schedule Meeting",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="Declarative part", state="started") as a
+Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Upload document",false,true,false;
+
+-- exclude(Hold Meeting, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Hold Meeting") as a
+update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting";
+
+-- include(Upload document, Download document) */
+@Priority(5)  on ProcessEvent(nodeID="Upload document") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Download document";
+
+-- exclude(Lock case, Upload document) */
+@Priority(5)  on ProcessEvent(nodeID="Lock case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Upload document";
+
+-- exclude(Finish case work, Lock case) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Lock case";
+
+-- exclude(Schedule Meeting, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Schedule Meeting") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting";
+
+-- include(Hold Meeting, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Hold Meeting") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting";
+
+-- exclude(Finish case work, Finish case work) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Finish case work";
+
+-- exclude(Finish case work, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting";
+
+-- exclude(Finish case work, Upload document) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Upload document";
+
+-- include(Upload document, Search documents) */
+@Priority(5)  on ProcessEvent(nodeID="Upload document") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Search documents";
+
+-- include(Schedule Meeting, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Schedule Meeting") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting";
+
+-- exclude(Finish case work, Search documents) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Search documents";
+
+-- exclude(Finish case work, Download document) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Download document";
+
+-- exclude(Finish case work, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Finish case work") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting";
+
+-- Handback the control to the BPMN process */
+@Priority(2)  on ProcessEvent(nodeID="Finish case work", state="completed") as a
+Insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+Select a.pmID,a.caseID, "Declarative part","completed",null,a.timestamp;
+
+-- Clear the event state table as well */
+@Priority(1)  on ProcessEvent(nodeID="Finish case work", state="completed") as a
+Delete from EventState as ES Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID;
+```
+
 [^1]: [Declarative and Hybrid Process Discovery: Recent Advances and Open Challenges](https://link.springer.com/article/10.1007/s13740-020-00112-9)
 [^2]: Camunda does not support the execution of Ad-hoc sub-processes.
