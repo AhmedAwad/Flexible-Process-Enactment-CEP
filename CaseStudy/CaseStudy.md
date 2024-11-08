@@ -45,7 +45,326 @@ This model exposes additional behavior that is not in the original description. 
 To stick to common BPMN elements that are truly procedural, we get rid of the Ad-hoc sub-process and remodel the process from Figure 1 as shown in Figure 2. We get rid of the artificial task ``Prepare to close case``. Yet, we lose the parallelism of uploading documents, searching document, planning and holding meetings. The simplification allows modeling this process in other procedural process modeling languages and for comparison with other BPMN-compliant execution engines, e.g., Camunda[^2].
 The model in Figure 2 uses variables to control the execution flow. The logic of the ``Decide what to do next`` sets the value of the _nextAction_ variable. Moreover, the logic for forcing scheduling a meeting before holding it, blocking documents upload once the case is locked, and not scheduling more than one meeting are all decided within the ``Decide what to do next`` task.
 
+## DCR
 
+<figure>
+  <img src="./DCR%20Case%20Management-paper.png" alt="Alt Text" style="display: block; margin: 0 auto;">
+  <figcaption style="text-align: center;">Figure 3: DCR model for the case management process</figcaption>
+</figure>
+
+We illustrate the corresponding model in a declarative process model using DCR graphs in Figure 3. The model is less complex, with no duplicate or artificial tasks. However, it is not easy to capture the starting and ending of the case. It takes a while to figure out that you can only execute ``Create Case`` at the beginning because it is set as a condition for all other events in the model. However, nothing prevents executing ``Create case`` several times for the same process instance (case). This can be remedied by adding an _exclude_ relation to itself. The same happens for the ``Close case`` and ``Lock case``. Therefore, there are no clear termination conditions for such a model, as is the case for DCR graphs in general.
+
+## The Hybrid Model
+
+<figure>
+  <img src="./Hybrid%20Case%20Management%20example%20fro%20Tijs%20Paper.jpg" alt="Alt Text" style="display: block; margin: 0 auto;">
+  <figcaption style="text-align: center;">Figure 4: Hybrid model for case management</figcaption>
+</figure>
+
+
+Figure 4 assumes a nested approach for modeling hybrid process models. The model uses procedural processes at the top level, in this case, a BPMN process model, and DCR graphs for the declarative part. The two steps of creating and closing the case take place in the beginning and the end, respectively. The ad-hoc sub-process will host the declarative part. We can observe that overall, the new model is simpler and has fewer artificial tasks. We only introduce the ``Finish case work`` task to explicitly define termination conditions for the ad-hoc sub-process.
+
+## Generated CQL Statements
+
+In the following, we show the mapping of the models in Figures 2, 3, and 4 into CQL respectively. 
+
+### BPMN
+
+The following statements are the mapping of the BPMN process in Figure 2 to CQL. The ``evaluate`` function, Line 12 to 58 is built to evaluate a condition ``cond`` against the case variables. The ``cond`` expression is instantiated by sequence flow conditions, see Line 77 where the function evaluates the condition ``nextAction != close``. In this example, we have used simple equal and not equal Boolean conditions. However, any complex Boolean condition can be used where the corresponding expression tree is constructed and referenced case variables are substituted with their variables from the ``Case_Variable`` table.
+
+
+[View SQL Code with Line Numbers](https://gist.github.com/AhmedAwad/730ac1bbc133d412a7bb86759930d053)
+```sql
+--create a context
+create context partitionedByPmIDAndCaseID partition by pmID, caseID from ProcessEvent;
+
+@Audit
+@name('track-events') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, state, payLoad, timestamp  from ProcessEvent;
+
+--Create the table that holds case variables
+context partitionedByPmIDAndCaseID create table Case_Variables (pmID int primary key, caseID int primary key, variables java.util.Map);
+@name('track-case-variables') context partitionedByPmIDAndCaseID select  pmID, caseID, variables from Case_Variables;
+
+context partitionedByPmIDAndCaseID
+create expression boolean js:evaluate(caseVariables, cond) [
+    evaluate(caseVariables, cond);
+    function evaluate(caseVariables, cond){
+        if (cond == "true")
+        {
+            return true;
+        }
+ if (cond == "nextAction=upload")
+                {
+return caseVariables.get('nextAction')=='upload'
+                 }
+ if (cond == "nextAction=search")
+                {
+return caseVariables.get('nextAction')=='search'
+                 }
+ if (cond == "nextAction=download")
+                {
+return caseVariables.get('nextAction')=='download'
+                 }
+ if (cond == "nextAction=schedule")
+                {
+return caseVariables.get('nextAction')=='schedule'
+                 }
+ if (cond == "nextAction=hold")
+                {
+return caseVariables.get('nextAction')=='hold'
+                 }
+ if (cond == "nextAction=close")
+                {
+return caseVariables.get('nextAction')=='close'
+                 }
+ if (cond == "nextAction=lock")
+                {
+return caseVariables.get('nextAction')=='lock'
+                 }
+ if (cond == "nextAction=close")
+                {
+return caseVariables.get('nextAction')=='close'
+                 }
+ if (cond == "nextAction != close")
+                {
+return caseVariables.get('nextAction')!='close'
+                 }
+
+        return false;
+    }
+];
+-- create the state table
+context partitionedByPmIDAndCaseID create table Execution_State (pmID int primary key, caseID int primary key, nodeID string primary key, state string, timestamp long);@Audit
+@name('track-state-table') context partitionedByPmIDAndCaseID select  pmID, caseID, nodeID, state, timestamp  from Execution_State;
+--Update the state table on the occurrence of an event
+@Priority(1)
+context partitionedByPmIDAndCaseID on ProcessEvent as pe
+merge Execution_State as es
+where es.pmID = pe.pmID and es.caseID = pe.caseID and es.nodeID = pe.nodeID
+when matched then
+    update set es.state = pe.state, es.timestamp = pe.timestamp
+when not matched then
+    insert into Execution_State(pmID, caseID, nodeID, state, timestamp) select pe.pmID, pe.caseID, pe.nodeID,  pe.state, pe.timestamp;
+--------------------------------------END of the Update State table--------------------------------------------
+@Name('XOR-Join-loop-XJ-1-input-XS-2') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "XJ-1",  pred.state,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed") , nodeID = "XS-2") as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where evaluate(CV.variables, "nextAction != close")=true;
+-- XOR-join, when one of the inputs is forming a loop
+-- The loopless entry point
+@Name('XOR-Join-XJ-1') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "XJ-1",  case pred.state when "completed" then "completed" else "skipped" end,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed","skipped") , nodeID in ("Upload document")) as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID;
+-- XOR Split XS-1
+-- Template to handle activity nodes that have a single predecessor
+@Name('XOR-Split-XS-1') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "XS-1", 
+case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "completed" else "skipped" end,
+CV.variables, pred.timestamp
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state in ("completed", "skipped") and pred.nodeID in ("Decide what to do next");
+@Name('XOR-Join-loop-XJ-2-input-XS-1') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "XJ-2",  pred.state,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed") , nodeID = "XS-1") as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where evaluate(CV.variables, "nextAction=close")=true;
+-- XOR-join, when one of the inputs is forming a loop
+-- The loopless entry point
+@Name('XOR-Join-XJ-2') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "XJ-2",  case pred.state when "completed" then "completed" else "skipped" end,
+ CV.variables, pred.timestamp
+from ProcessEvent (state in ("completed","skipped") , nodeID in ("Upload document2","Search document","download oducment","Schedule meeting","Hold meeting","Lock case")) as pred join Case_Variables as CV
+on pred.pmID = CV.pmID and pred.caseID = CV.caseID;
+-- XOR Split XS-2
+-- Template to handle activity nodes that have a single predecessor
+@Name('XOR-Split-XS-2') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "XS-2", 
+case when pred.state="completed" and  evaluate(CV.variables, "true") = true then "completed" else "skipped" end,
+CV.variables, pred.timestamp
+from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state in ("completed", "skipped") and pred.nodeID in ("XJ-2");
+-- Activity Create Case-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Create Case-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Create Case","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"true")=false) and pred.nodeID in ("SE");
+-- Activity Create Case-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Create Case-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Create Case","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"true")=true and pred.nodeID in ("SE");
+
+-- Activity Close case-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Close case-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Close case","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=close")=false) and pred.nodeID in ("XS-2");
+-- Activity Close case-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Close case-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Close case","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=close")=true and pred.nodeID in ("XS-2");
+
+-- Activity Upload document-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Upload document-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Upload document","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"true")=false) and pred.nodeID in ("Create Case");
+-- Activity Upload document-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Upload document-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Upload document","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"true")=true and pred.nodeID in ("Create Case");
+
+-- Activity Decide what to do next-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Decide what to do next-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Decide what to do next","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"true")=false) and pred.nodeID in ("XJ-1");
+-- Activity Decide what to do next-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Decide what to do next-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Decide what to do next","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"true")=true and pred.nodeID in ("XJ-1");
+
+--Update case variable on the completion of activity Decide what to do next
+@Priority(2) context partitionedByPmIDAndCaseID 
+on ProcessEvent(nodeID="Decide what to do next", state="completed") as a
+update Case_Variables as CV set variables('nextAction') = a.payLoad('nextAction')
+where CV.pmID = a.pmID and CV.caseID = a.caseID;
+-- Activity Search document-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Search document-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Search document","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=search")=false) and pred.nodeID in ("XS-1");
+-- Activity Search document-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Search document-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Search document","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=search")=true and pred.nodeID in ("XS-1");
+
+-- Activity download oducment-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-download oducment-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "download oducment","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=download")=false) and pred.nodeID in ("XS-1");
+-- Activity download oducment-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-download oducment-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "download oducment","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=download")=true and pred.nodeID in ("XS-1");
+
+-- Activity Upload document2-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Upload document2-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Upload document2","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=upload")=false) and pred.nodeID in ("XS-1");
+-- Activity Upload document2-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Upload document2-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Upload document2","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=upload")=true and pred.nodeID in ("XS-1");
+
+-- Activity Schedule meeting-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Schedule meeting-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Schedule meeting","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=schedule")=false) and pred.nodeID in ("XS-1");
+-- Activity Schedule meeting-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Schedule meeting-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Schedule meeting","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=schedule")=true and pred.nodeID in ("XS-1");
+
+--Update case variable on the completion of activity Schedule meeting
+@Priority(2) context partitionedByPmIDAndCaseID 
+on ProcessEvent(nodeID="Schedule meeting", state="completed") as a
+update Case_Variables as CV set variables('holdMeeting') = a.payLoad('holdMeeting')
+where CV.pmID = a.pmID and CV.caseID = a.caseID;
+-- Activity Hold meeting-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Hold meeting-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Hold meeting","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=hold")=false) and pred.nodeID in ("XS-1");
+-- Activity Hold meeting-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Hold meeting-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Hold meeting","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=hold")=true and pred.nodeID in ("XS-1");
+
+--Update case variable on the completion of activity Hold meeting
+@Priority(2) context partitionedByPmIDAndCaseID 
+on ProcessEvent(nodeID="Hold meeting", state="completed") as a
+update Case_Variables as CV set variables('holdMeeting') = a.payLoad('holdMeeting')
+where CV.pmID = a.pmID and CV.caseID = a.caseID;
+-- Activity Lock case-Skipped
+-- Template to handle activity nodes that have a single predecessor
+@Priority(1) @Name('Activity-Lock case-Skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Lock case","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state = "skipped" or evaluate(CV.variables,"nextAction=lock")=false) and pred.nodeID in ("XS-1");
+-- Activity Lock case-Completed
+-- Template to handle activity nodes that have a single predecessor
+@Name('Activity-Lock case-Start') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)
+select pred.pmID, pred.caseID, "Lock case","started",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state = "completed" and evaluate(CV.variables,"nextAction=lock")=true and pred.nodeID in ("XS-1");
+
+--Update case variable on the completion of activity Lock case
+@Priority(2) context partitionedByPmIDAndCaseID 
+on ProcessEvent(nodeID="Lock case", state="completed") as a
+update Case_Variables as CV set variables('caseLocked') = a.payLoad('caseLocked')
+where CV.pmID = a.pmID and CV.caseID = a.caseID;
+-- End event-EE-skip
+@Priority(1) @Name('End-Event-skip') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "EE","skipped",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where (pred.state in ("skipped") or evaluate(CV.variables, "true") = false ) and pred.nodeID in ("Close case");
+-- End event-EE-complete
+@Name('End-Event-complete') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "EE","completed",CV.variables, pred.timestamp
+From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID
+where pred.state in ("completed") and evaluate(CV.variables, "true") = true and pred.nodeID in ("Close case");
+
+@Priority(5) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID="EE", state="completed") as a
+delete from Execution_State as H
+where H.pmID = a.pmID and H.caseID = a.caseID
+and not exists (select 1 from Execution_State as H where H.pmID = a.pmID and H.caseID = a.caseID and
+H.nodeID = "EE" and H.state ="completed");
+
+-- Start event -- this shall be injected from outside
+@Name('Start-Event-SE') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)
+select pred.pmID, pred.caseID, "SE","completed", pred.payLoad, pred.timestamp
+from ProcessEvent(nodeID="SE", state="started") as pred;
+--Inititate case variables as a response to the start event
+@Name('Insert-Case-Variables') context partitionedByPmIDAndCaseID
+insert into Case_Variables (pmID, caseID, variables )
+select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID="SE", state="started") as st;
+```
+### DCR
 
 [^1]: [Declarative and Hybrid Process Discovery: Recent Advances and Open Challenges](https://link.springer.com/article/10.1007/s13740-020-00112-9)
 [^2]: Camunda does not support the execution of Ad-hoc sub-processes.
