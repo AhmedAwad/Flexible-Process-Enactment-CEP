@@ -72,6 +72,9 @@ In the following, we show the mapping of the models in Figures 2, 3, and 4 into 
 
 The following statements are the mapping of the BPMN process in Figure 2 to CQL. The ``evaluate`` function, Line 12 to 58 is built to evaluate a condition ``cond`` against the case variables. The ``cond`` expression is instantiated by sequence flow conditions, see Line 77 where the function evaluates the condition ``nextAction != close``. In this example, we have used simple equal and not equal Boolean conditions. However, any complex Boolean condition can be used where the corresponding expression tree is constructed and referenced case variables are substituted with their variables from the ``Case_Variable`` table.
 
+As an arriving ``ProcessEvent`` can trigger more than one CQL statement. It is necessary to force an execution order where it matters. The directive ``@Priority(n)`` is used by ESPER to give priorities to the CQL statements, the lower the number ``n``, the higher the priority. For instance, at Line 63, we give the priorty 1 to the CQL statement that updates the ``Execution_State`` table. This ensures that the event will upsert the table before  other rules need to process that event. All CQL statements that update the ``Case_Variables`` table have a higher priority, ``n=2``. Examples of such statements are in lines $167$ and $224$.
+
+
 
 [View SQL Code with Line Numbers](https://gist.github.com/AhmedAwad/730ac1bbc133d412a7bb86759930d053)
 ```sql
@@ -365,6 +368,146 @@ insert into Case_Variables (pmID, caseID, variables )
 select st.pmID, st.caseID, st.payLoad from ProcessEvent(nodeID="SE", state="started") as st;
 ```
 ### DCR
+
+The following code snippet shows the mapping of the DCR process in Figure 3 to CQL. We start by creating the ``EventState`` table. The CQL statement from line $3$ to $8$ reports the eligible tasks for execution upon the arrival of a process execution event.  This statement is given a lower priority than the statement at line $13$. The latter updates the $EventState$ table to reflect the execution of a task by setting ``happened`` to true and ``restless`` to false only if the task was eligible for execution, i.e., ``included=true``. The whole instance is triggered by an external event. This is given in lines $18$ to $33$ which initializes the ``EventState`` table for all tasks according to the model. As none of the tasks would have been executed at this stage, they all have their ``happened`` property set to ``false``. Moreover, as ``Search Document`` is initially excluded by the process model design, its ``included`` property is set to ``false``. The model rules are realized by CQL statements from Line $35$ onwards
+
+```sql
+@Priority(2) @Name('available-tasks') on ProcessEvent as a
+Select ProcessModelID, ES.caseID as caseID, eventID from EventState as ES
+Where included=true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID
+and ((ES.eventID ="Close Case" and exists (Select 1 from EventState as ES2 Where ES2.eventID = "Create Case" and ES2.caseID = ES.caseID 
+and (not ES2.included or (ES.included and ES2.happened)) )) 
+or ES.eventID in ("Create Case", "Download document", "Lock case", "Search documents", "Schedule Meeting", "Upload document", "Hold Meeting"));
+
+@Priority(20)Select  pmID, caseID, nodeID, state, payLoad, timestamp  from ProcessEvent;
+
+-- Update an activity to be happened (executed) and no longer required (restless=false) */
+@Priority(10)  on ProcessEvent as a
+Update EventState as ES set restless = false, happened=true
+Where ES.included = true and ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID=a.nodeID;
+
+-- Initiate the state table upon an external trigger for the new case */
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Hold Meeting",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Close Case",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Download document",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Lock case",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Search documents",false,false,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Schedule Meeting",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Create Case",false,true,false;
+@Priority(5)  on ProcessEvent(nodeID="SE", state="started") as a  Insert into EventState(ProcessModelID,caseID,eventID,happened,included,restless)
+Select a.pmID,a.caseID,"Upload document",false,true,false;
+
+-- Precondition rule */
+@Priority(10)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set restless = false, happened=true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Close Case"
+ and exists (Select 1 from EventState as ES2 Where ES2.eventID = "Create Case" and ES2.caseID = ES.caseID 
+and (not ES2.included or (ES.included and ES2.happened)));
+
+
+-- exclude(Close Case, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Close Case) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Close Case" 
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Schedule Meeting, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Schedule Meeting") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting" 
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Create Case, Create Case) */
+@Priority(5)  on ProcessEvent(nodeID="Create Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Create Case"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- response(Close Case,Create Case) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set restless = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Create Case"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Lock case) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Lock case"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Lock case, Upload document) */
+@Priority(5)  on ProcessEvent(nodeID="Lock case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Upload document"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Upload document) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Upload document"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- include(Upload document, Download document) */
+@Priority(5)  on ProcessEvent(nodeID="Upload document") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Download document"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- include(Upload document, Search documents) */ 
+@Priority(5)  on ProcessEvent(nodeID="Upload document") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Search documents"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Hold Meeting, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Hold Meeting") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- include(Hold Meeting, Schedule Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Hold Meeting") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Schedule Meeting"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- include(Schedule Meeting, Hold Meeting) */
+@Priority(5)  on ProcessEvent(nodeID="Schedule Meeting") as a
+Update EventState as ES set included = true
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Hold Meeting"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Download document) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Download document"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+
+-- exclude(Close Case, Search documents) */
+@Priority(5)  on ProcessEvent(nodeID="Close Case") as a
+Update EventState as ES set included = false
+Where ES.ProcessModelID = a.pmID and ES.caseID = a.caseID and ES.eventID="Search documents"
+and exists (Select 1 from EventState as ES2 Where ES.ProcessModelID = a.pmID and ES2.caseID = a.caseID and ES2.eventID = a.nodeID and ES2.happened = true);
+```
 
 [^1]: [Declarative and Hybrid Process Discovery: Recent Advances and Open Challenges](https://link.springer.com/article/10.1007/s13740-020-00112-9)
 [^2]: Camunda does not support the execution of Ad-hoc sub-processes.
