@@ -34,6 +34,8 @@ public class Runner {
 
     public static void main(String[] args) {
 
+//        generateBPMNRulesToFile("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Manufacturing Process from 2023 paper.bpmn");
+        enactEPL("C:\\Work\\DSG\\Flexible-Process-Enactment-CEP\\src\\etc\\examples\\Manufacturing Process from 2023 paper.epl");
 //        obtainProcessGraph();
 //        System.exit(0);
 //        generateRules();
@@ -70,6 +72,24 @@ public class Runner {
         System.out.println(graph.getActivities().stream().map(e -> e.getName()).collect(Collectors.toList()).toString());
 
     }
+
+    public static void generateBPMNRulesToFile(String inputBPMNFile)
+    {
+        File input = new File(inputBPMNFile);
+        BPMNRulesGenerator BPMNRulesGenerator = new BPMNRulesGenerator(input);
+
+        String rules = BPMNRulesGenerator.generateEPLModule();
+        String moduleFileName = inputBPMNFile.substring(0, inputBPMNFile.indexOf(".")) + ".epl";
+        try {
+            BufferedWriter writer = new BufferedWriter(new FileWriter(moduleFileName));
+            writer.write(rules);
+            writer.close();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+    }
+
 
     public static void generateRules() {
         File input;
@@ -135,10 +155,9 @@ public class Runner {
             throw new RuntimeException(e);
         }
 
-//        System.exit(0);
 
         enactEPL(moduleFileName);
-//        }
+
     }
 
     private static void enactEPL(String moduleFileName) {
@@ -198,9 +217,9 @@ public class Runner {
             }
             handleDCREventStream(runtime, dep,eventService);
 
-            Map<String, Object> variables = initializeProcessInstanceData();
+            Map<String, Object> variables = initializeManufacturingProcessInstanceData();
             for (int i = 1; i <= 1; i++) {
-                ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "SE", /*0,*/ "started"
+                ProcessEvent startNewProcessInstance = new ProcessEvent(3, i, "S1", /*0,*/ "started"
                         , variables, System.currentTimeMillis());
 
                 sender.sendEvent(startNewProcessInstance);
@@ -272,6 +291,12 @@ public class Runner {
         return variables;
     }
 
+    private static Map<String, Object> initializeManufacturingProcessInstanceData() {
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("service","MillingAndTurning"); // possible values are Milling, Turning, or MillingAndTurning
+        return variables;
+    }
+
     private static void handleBPMNEventStream(EPRuntime runtime, EPDeployment dep, EPEventService eventService) {
         EPStatement statement = runtime.getDeploymentService().getStatement(dep.getDeploymentId(), "track-events");
 
@@ -295,7 +320,7 @@ public class Runner {
 //                    System.out.printf("A new process event received with Process Model ID:%d," +
 //                                    " Case ID:%d, Node ID:%s, Cycle Number:%d, State:%s, Payload:%s, and Time:%d%n",
 //                            pmID, caseID, nodeID,cycleNum,state,payLoad.toString(), time);
-                if (!state.equals("skipped"))
+//                if (!state.equals("skipped"))
                     System.out.printf("%d,%d,%s, %s, %s, %d\n",
                         pmID, caseID, nodeID, state, payLoad.toString().replace(",", ";"), time);
 
@@ -358,15 +383,31 @@ public class Runner {
                 } else if (nodeID.equals("Lock case") && state.equals("started")) {
                     handleActivityLockCase(eventService, pmID, caseID, nodeID, payLoad);
 
-                } //else if(nodeID.equals("Hold meeting") && state.equals("started")){
-//                handleActivityHoldMeeting(eventService,pmID,caseID,nodeID,payLoad);
-
-//            }
-                else if (nodeID.equals("Declarative part") && state.equals("started")) {
+                } else if (nodeID.equals("Declarative part") && state.equals("started")) {
                     System.out.println("Now the declarative part is  kicking in...");
+                } else if (nodeID.equals("Fina Inspection Q.C.") && state.equals("started")){
+                    handleActivityFinalInspectionQC(eventService,pmID,caseID,nodeID,payLoad);
+
+                } else if (nodeID.equals("Lapping") && state.equals("started")) {
+                    handleActivityLapping(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Laser Marking") && state.equals("started")) {
+                    handleActivityLaserMarking(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Turning and milling") && state.equals("started")) {
+                    handleActivityTurningAndMilling(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Turning and milling Q.C.") && state.equals("started")) {
+                    handleActivityTurningAndMillingQC(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Round Grinding") && state.equals("started")) {
+                    handleActivityRoundGrinding(eventService, pmID, caseID, nodeID, payLoad);
+
+                } else if (nodeID.equals("Packing") && state.equals("started")) {
+                    handleActivityPacking(eventService, pmID, caseID, nodeID, payLoad);
 
                 } else if (state.equals("started")) {
-                    if (nodeID.startsWith("SE"))
+                    if (nodeID.startsWith("S1"))
                         return;
                     handleGeneralActivity(eventService, pmID, caseID, nodeID, payLoad);
                 }
@@ -442,6 +483,277 @@ public class Runner {
         sender.advanceTime(activityACompleted.getTimestamp());
 
     }
+    private static void handleActivityTurningAndMilling(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        System.out.println("Choose one option");
+
+        variables.put("TMNext","TMQC"); // possible choices TMQC or TM (looping)
+
+        System.out.println("1 - Turning and Milling (redo the task)");
+        System.out.println("2 - Turning and Milling Q.C.");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 2));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("TMNext","TM");
+        else if (choice ==2)
+            variables.put("TMNext", "TMQC");
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityTurningAndMillingQC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("TMQCNext","NQC"); // possible choices TMQC (looping),  LM, or NQC
+
+
+        System.out.println("1 - Turning and Milling Q.C. (redo the task)");
+        System.out.println("2 - Laser Marking");
+        System.out.println("3 - Nitration Q.C.");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 3));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("TMQCNext","TMQC");
+        else if (choice ==2)
+            variables.put("TMQCNext", "LM");
+        else if (choice ==2)
+            variables.put("TMQCNext", "NQC");
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityLaserMarking(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("LMNext","FG"); // possible choices FG,  Lapping, or FIQC
+
+        System.out.println("1 - Flat Grinding");
+        System.out.println("2 - Lapping");
+        System.out.println("3 - Final Inspection Q.C.");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 3));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("LMNext","FG");
+        else if (choice ==2)
+            variables.put("LMNext", "Lapping");
+        else if (choice ==2)
+            variables.put("LMNext", "FIQC");
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    private static void handleActivityLapping(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("LappingNext","RG"); // possible choices RG,  Lapping, or FIQC
+
+        System.out.println("1 - Round Grinding");
+        System.out.println("2 - Lapping (redo the task)");
+        System.out.println("3 - Final Inspection Q.C.");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 3));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("LappingNext","RG");
+        else if (choice ==2)
+            variables.put("LappingNext", "Lapping");
+        else if (choice ==2)
+            variables.put("LappingNext", "FIQC");
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    private static void handleActivityRoundGrinding(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("RGNext","FIQC"); // possible choices FIQC or RG
+
+        System.out.println("1 - Round Grinding (redo the task)");
+        System.out.println("2 - Final Inspection Q.C.");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 2));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("RGNext","RG");
+        else if (choice ==2)
+            variables.put("RGNext", "FIQC");
+
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
+    private static void handleActivityPacking(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("PackingNext","End"); // possible choices Packing or End
+
+        System.out.println("1 - Packing (redo the task)");
+        System.out.println("2 - Proceed to end");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 2));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("PackingNext","Packing");
+        else if (choice ==2)
+            variables.put("PackingNext", "End");
+
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+    private static void handleActivityFinalInspectionQC(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad){
+        Map<String, Object> variables = new HashMap<>();
+
+
+        for (String k : payLoad.keySet())
+            variables.put(k, payLoad.get(k));
+        variables.put("FIQCNext","End"); // possible choices End or GR
+
+        System.out.println("1 - Proceed to end");
+        System.out.println("2 - Grinding Rework (loop)");
+
+        Scanner scanner = new Scanner(System.in);
+        int choice =-1;
+
+        System.out.print(String.format("Enter a number between 1 and %d: ", 2));
+        choice = scanner.nextInt();
+
+        if (choice ==1)
+            variables.put("FIQCNext","End");
+        else if (choice ==2)
+            variables.put("FIQCNext", "GR");
+
+
+
+
+        double v = Math.random();
+        try {
+            Thread.sleep((long) (v * 1000));
+            ProcessEvent activityACompleted = new ProcessEvent(pmID, caseID, nodeID, "completed", variables, System.currentTimeMillis());
+            sender.sendEventBean(activityACompleted, "ProcessEvent");
+            sender.advanceTime(activityACompleted.getTimestamp());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+
+    }
+
     private static void handleActivityDecideWhatToDoNext(EPEventService sender, int pmID, int caseID, String nodeID, Map<String, Object> payLoad) {
         Map<String, Object> variables = new HashMap<>();
 
