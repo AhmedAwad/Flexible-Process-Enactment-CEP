@@ -210,10 +210,13 @@ public class BPMNRulesGenerator extends RuleGenerator {
         p2.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
         Path p3 = new Path(out, in1, "?split");
         p3.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
+        Path p4 = new Path(orJoin, orJoin);
+        p4.setPathEvaluaiton(Path.PathEvaluation.SHORTEST);
 
         query.add(p1);
         query.add(p2);
         query.add(p3);
+        query.add(p4);
         return query;
     }
     private static QueryGraph buildLoopCheckQueryGraph(String xorJoinID, String xorJoinName) {
@@ -311,6 +314,7 @@ public class BPMNRulesGenerator extends RuleGenerator {
     }
     @Override
     public String generateEPLModule() {
+
         StringBuilder sb = new StringBuilder();
 
         //Create the context and the tracking of events
@@ -374,15 +378,9 @@ public class BPMNRulesGenerator extends RuleGenerator {
 
     private void handleExclusiveGateways(StringBuilder sb, FlowNode elem, String inList) {
 
-        // This part need to be completely reworked to handle the loops in a more systematic approach
         if (((ExclusiveGatewayImpl) elem).getGatewayDirection() == GatewayDirection.Converging) {
 
-//            sb.append("//XOR-join input events consumption \n@Priority(2) context partitionedByPmIDAndCaseID on ProcessEvent(nodeID=\"")
-//                    .append(elem.getName())
-//                    .append("\") as aJoin \n")
-//                    .append("delete from Synchronization_Events as ST where ST.nodeID in ")
-//                    .append(inList)
-//                    .append(" and ST.caseID = aJoin.caseID;\n\n");
+
             //We need to check if there is a loop
             if (loopEntryNodes.contains(elem.getName()))
             {
@@ -417,7 +415,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
                                 .append("') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, Time_stamp)\n")
                                 .append("select pred.pmID, pred.caseID, \"" + elem.getName() + "\","+  SKIPPED + ",CV.variables, pred.timestamp\n")
                                 .append("From ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n")
-                                .append("where (pred.state = "+ SKIPPED + " or evaluate(CV.variables,\""+condition+"\")=false) and pred.nodeID =\"" + pred.getName() + "\";\n");
+                                .append("where (pred.state = "+ SKIPPED + " or evaluate(CV.variables,\""+condition+"\")=false) and pred.nodeID =\"" + pred.getName() + "\"")
+                                .append("and not exists (select 1 from Execution_State as H where H.nodeID=\""+elem.getName()+"\" and H.state ="+SKIPPED+" and H.pmID = pred.pmID and H.caseID= pred.caseID);\n");
 
                         //Completed case
                         sb.append("@Name('XOR-Join-loop-completed-")
@@ -455,42 +454,13 @@ public class BPMNRulesGenerator extends RuleGenerator {
                             .append("select pred.pmID, pred.caseID, \"" + elem.getName() + "\", " + SKIPPED + " ,\n")
                             .append( " CV.variables, pred.timestamp\n")
                             .append( "from ProcessEvent (state in (" + COMPLETED + ","+SKIPPED +"), nodeID =\""+flow.getSource().getName()+"\") as pred join Case_Variables as CV\n")
-                            .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID where( (pred.state="+COMPLETED+" and evaluate(CV.variables, \""+condition+"\")=false) or pred.state="+SKIPPED+");\n ");
-
+                            .append("on pred.pmID = CV.pmID and pred.caseID = CV.caseID where( (pred.state="+COMPLETED+" and evaluate(CV.variables, \""+condition+"\")=false) or pred.state="+SKIPPED+")")
+                            .append("and not exists (select 1 from Execution_State as H where H.nodeID=\""+elem.getName()+"\" and H.state ="+SKIPPED+" and H.pmID = pred.pmID and H.caseID= pred.caseID);\n");
                 }
-//                sb.append("//XOR-Join in in an acyclic block\n" +
-//                        "//The loopless entry point\n" +
-//                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
-//                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", " + COMPLETED + " ,\n" +
-//                        " CV.variables, pred.timestamp\n" +
-//                        "from ProcessEvent (state in (" + COMPLETED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
-//                      //  "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  exists (select 1 from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ COMPLETED+" ) and (");
-//                        "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  (");
-//
-//                for (SequenceFlow flow: elem.getIncoming())
-//                {
-//                    String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
-//                    sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
-//                }
-//                sb.append(" false);\n");
-//
-//                sb.append("//XOR-Join in in an acyclic block\n" +
-//                        "//The loopless entry point\n" +
-//                        "@Name('XOR-Join-" + elem.getName() + "') context partitionedByPmIDAndCaseID insert into ProcessEvent(pmID, caseID, nodeID,  state, payLoad, timestamp)\n" +
-//                        "select pred.pmID, pred.caseID, \"" + elem.getName() + "\", " + SKIPPED + " ,\n" +
-//                        " CV.variables, pred.timestamp\n" +
-//                        "from ProcessEvent (state in (" + SKIPPED + "), nodeID in " + inList + ") as pred join Case_Variables as CV\n" +
-//                   //     "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  (select count(1) from Synchronization_Events as ST where ST.caseID = pred.caseID and ST.nodeID in "+ inList+" and ST.state ="+ SKIPPED+") ="+inList.split(",").length+"  and (");
-//                        "on pred.pmID = CV.pmID and pred.caseID = CV.caseID where  (");
-//                for (SequenceFlow flow: elem.getIncoming())
-//                {
-//                    String condition = flow.getName() == null || flow.getName().length() == 0 ? "true" : flow.getName();
-//                    sb.append("evaluate(CV.variables, \""+condition+"\")=true or ");
-//                }
-//                sb.append(" false);\n");
+
             }
         } else {
-
+            // XOR split
             SequenceFlow s = new ArrayList<>(elem.getIncoming()).get(0);
             String condition = s.getName() == null || s.getName().length() == 0 ? "true" : s.getName();
 
@@ -501,7 +471,8 @@ public class BPMNRulesGenerator extends RuleGenerator {
                     "case when pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true then " + COMPLETED + " else " + SKIPPED + " end,\n" +
                     "CV.variables, pred.timestamp\n" +
                     "from ProcessEvent as pred join Case_Variables as CV on pred.pmID = CV.pmID and pred.caseID = CV.caseID\n" +
-                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + ";\n");
+                    "where pred.state in (" + COMPLETED + ", " + SKIPPED + ") and pred.nodeID in " + inList + "")
+                    .append(" and ((pred.state=" + SKIPPED + " or  evaluate(CV.variables, \"" + condition + "\") = false and not exists (select 1 from Execution_State as H where H.nodeID=\""+elem.getName()+"\" and H.state ="+SKIPPED+" and H.pmID = pred.pmID and H.caseID= pred.caseID)) or (pred.state=" + COMPLETED + " and  evaluate(CV.variables, \"" + condition + "\") = true));\n");
         }
     }
 
@@ -567,6 +538,11 @@ public class BPMNRulesGenerator extends RuleGenerator {
             sb.append(completed);
 
         }
+
+        String preds = elem.getIncoming().stream().map(e -> "\""+ e.getSource().getName()+"\"").collect(Collectors.toList()).toString().replace("[","(").replace("]",")");
+        sb.append("@Priority(2) context partitionedByPmIDAndCaseID\n")
+                .append(" on ProcessEvent(nodeID=\""+elem.getName()+"\") as aa\n")
+                .append(" delete from Execution_State as es where es.pmID = aa.pmID and es.caseID = aa.caseID and es.nodeID in "+preds+" and es.state=aa.state;\n");
 
     }
     private static void handleANDJoinNewWay(StringBuilder sb, FlowNode elem)
